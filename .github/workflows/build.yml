@@ -1,0 +1,117 @@
+name: Build
+
+# Сборка при каждом пуше в main, при создании тега v* (тогда ещё и релиз) и вручную.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # нужно, чтобы выложить файлы в релиз
+  pages: write # публикация веб-версии
+  id-token: write
+
+jobs:
+  web:
+    name: Веб-версия (GitHub Pages)
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # адрес прокси берётся из переменной репозитория PROXY_URL (см. proxy/README.md)
+      - run: >
+          flutter build web --release
+          --base-href "/${{ github.event.repository.name }}/"
+          --dart-define=PROXY_URL=${{ vars.PROXY_URL }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  ios:
+    name: iPhone (.ipa без подписи)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build ios --release --no-codesign
+      # .ipa — это zip с папкой Payload/Runner.app. Подпись ставит Sideloadly/AltStore при установке.
+      - name: Упаковать .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry music_player-ios.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: music_player-ios.ipa
+
+  android:
+    name: Android (.apk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build apk --release
+      - run: mv build/app/outputs/flutter-apk/app-release.apk music_player-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: music_player-android.apk
+
+  windows:
+    name: Windows (.zip)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath music_player-windows.zip
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: music_player-windows.zip
+
+  release:
+    name: Релиз
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [ios, android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            music_player-ios.ipa
+            music_player-android.apk
+            music_player-windows.zip

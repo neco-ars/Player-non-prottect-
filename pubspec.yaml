@@ -1,0 +1,32 @@
+name: music_player
+description: "Агрегатор музыки: поиск по Яндекс Музыке, SoundCloud и YouTube в одном плеере."
+publish_to: 'none'
+version: 0.6.0+6
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  crypto: ^3.0.5
+  just_audio: ^0.9.42
+  just_audio_media_kit: ^2.0.6
+  media_kit_libs_windows_audio: ^1.0.9
+  shared_preferences: ^2.3.2
+  url_launcher: ^6.3.1
+  xml: ^6.5.0
+  path_provider: ^2.1.6
+  youtube_player_iframe: ^6.0.3
+  audio_service: ^0.18.19
+  file_picker: ^13.3.3
+  audio_metadata_reader: ^1.8.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
