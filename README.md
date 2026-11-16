@@ -64,16 +64,6 @@ flutter build apk --release        # Android
 flutter build windows --release    # Windows (нужны Visual Studio Build Tools с C++)
 flutter build web --release --dart-define=PROXY_URL=https://<твой-прокси>.workers.dev
 ```
-
-### Автосборка на GitHub
-
-[`.github/workflows/build.yml`](.github/workflows/build.yml) при каждом пуше в `main` собирает Android, Windows,
-iOS (без подписи) и публикует веб-версию на **GitHub Pages**. При пуше тега `v*` файлы выкладываются в Releases.
-
-Один раз в настройках репозитория:
-1. **Settings → Pages → Source: GitHub Actions**.
-2. **Settings → Secrets and variables → Actions → Variables → `PROXY_URL`** — адрес прокси (см. ниже).
-
 ### Прокси для веб-версии
 
 Браузер не пускает сайт напрямую в API Яндекс Музыки, SoundCloud и Audiomack, поэтому веб-версия ходит к ним
