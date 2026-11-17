@@ -11,6 +11,16 @@ import 'search_service.dart';
 
 enum Repeat { off, all, one }
 
+/// Площадка вместо полного трека отдала короткий фрагмент.
+class PreviewOnlyStream implements Exception {
+  final String source;
+  const PreviewOnlyStream(this.source);
+  @override
+  String toString() => source == 'zvuk'
+      ? 'Звук отдал только 30-секундный фрагмент — войди в свой аккаунт Звука в ⚙ Настройках'
+      : 'площадка отдала только короткий фрагмент';
+}
+
 /// Плеер со своей очередью. Ссылки на потоки временные,
 /// поэтому получаем их только перед воспроизведением конкретного трека.
 /// Видео YouTube играет через официальный плеер: сервис только сообщает интерфейсу,
@@ -243,7 +253,17 @@ class PlayerService extends ChangeNotifier {
     final info = await search.sourceOf(t).streamUrl(t);
     if (current != t) return;
     // уведомление в шторке ведёт audio_handler.dart — он следит за current
-    await player.setAudioSource(info.hls ? HlsAudioSource(info.url) : AudioSource.uri(info.url));
+    final loaded = await player.setAudioSource(info.hls ? HlsAudioSource(info.url) : AudioSource.uri(info.url));
+    // Площадка отдала ~30-секундный фрагмент вместо полного трека (например, гостевой доступ Звука):
+    // не играем его, а ищем полную версию на других площадках.
+    final expected = t.duration ?? Duration.zero;
+    if (loaded != null &&
+        loaded > Duration.zero &&
+        loaded <= const Duration(seconds: 45) &&
+        expected >= const Duration(seconds: 75)) {
+      await player.stop();
+      throw PreviewOnlyStream(search.sourceOf(t).id);
+    }
     unawaited(player.play());
   }
 
