@@ -3,6 +3,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../services/app_services.dart';
 import 'now_playing.dart';
+import 'position.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -119,18 +120,16 @@ class MiniPlayer extends StatelessWidget {
 class _ThinProgress extends StatelessWidget {
   final AudioPlayer player;
   const _ThinProgress({required this.player});
+  // тонкая полоска — раз в секунду вполне достаточно
   @override
-  Widget build(BuildContext context) => StreamBuilder<Duration>(
-        stream: player.positionStream,
-        builder: (context, snap) {
-          final total = player.duration?.inMilliseconds ?? 0;
-          final pos = snap.data?.inMilliseconds ?? 0;
-          return LinearProgressIndicator(
-            value: total > 0 ? (pos / total).clamp(0.0, 1.0) : 0,
-            minHeight: 2,
-            backgroundColor: Colors.white24,
-            color: AppColors.text,
-          );
-        },
+  Widget build(BuildContext context) => PositionBuilder(
+        player: player,
+        period: const Duration(seconds: 1),
+        builder: (context, pos, total) => LinearProgressIndicator(
+          value: total > Duration.zero ? (pos.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0) : 0,
+          minHeight: 2,
+          backgroundColor: Colors.white24,
+          color: AppColors.text,
+        ),
       );
 }

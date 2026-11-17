@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/track.dart';
 import 'net.dart';
@@ -21,15 +22,30 @@ class SoundCloudSource extends MusicSource {
   @override
   bool get isConfigured => !Net.proxyMissing;
 
+  static const _prefKey = 'soundcloud_client_id';
+
   /// client_id берётся из JS сайта SoundCloud и иногда меняется,
   /// поэтому при ошибке 401/403 получаем его заново.
+  /// Найденный ключ запоминаем на устройстве: иначе каждый запуск скачивал бы
+  /// главную страницу SoundCloud и несколько мегабайт их скриптов.
   Future<String> _getClientId({bool refresh = false}) async {
     if (_clientId != null && !refresh) return _clientId!;
-    final page = await http.get(Net.wrap(Uri.https('soundcloud.com', '/')), headers: _ua);
+    final prefs = await SharedPreferences.getInstance();
+    if (!refresh) {
+      final saved = prefs.getString(_prefKey);
+      if (saved != null) return _clientId = saved;
+    }
+    final id = await _scrapeClientId();
+    await prefs.setString(_prefKey, id);
+    return _clientId = id;
+  }
+
+  Future<String> _scrapeClientId() async {
+    final page = await Net.client.get(Net.wrap(Uri.https('soundcloud.com', '/')), headers: _ua);
     final idRe = RegExp(r'client_id\s*[:=]\s*"([0-9a-zA-Z]{32})"');
     // иногда client_id лежит прямо в HTML
     final inline = idRe.firstMatch(page.body);
-    if (inline != null) return _clientId = inline.group(1)!;
+    if (inline != null) return inline.group(1)!;
 
     final scripts = RegExp(r'src="(https://a-v2\.sndcdn\.com/assets/[^"]+\.js)"')
         .allMatches(page.body)
@@ -38,9 +54,9 @@ class SoundCloudSource extends MusicSource {
         .toList()
         .reversed; // client_id обычно в последних скриптах
     for (final src in scripts) {
-      final js = await http.get(Net.wrap(Uri.parse(src)), headers: _ua);
+      final js = await Net.client.get(Net.wrap(Uri.parse(src)), headers: _ua);
       final m = idRe.firstMatch(js.body);
-      if (m != null) return _clientId = m.group(1)!;
+      if (m != null) return m.group(1)!;
     }
     // подробности — чтобы было понятно, что вернул SoundCloud (например, проверку на бота)
     final title = RegExp(r'<title>([^<]{0,60})').firstMatch(page.body)?.group(1)?.trim();
@@ -53,7 +69,7 @@ class SoundCloudSource extends MusicSource {
     for (var attempt = 0; attempt < 2; attempt++) {
       final cid = await _getClientId(refresh: attempt > 0);
       final uri = Uri.parse(url).replace(queryParameters: {...params, 'client_id': cid});
-      final res = await http.get(Net.wrap(uri), headers: _ua);
+      final res = await Net.client.get(Net.wrap(uri), headers: _ua);
       if (res.statusCode != 401 && res.statusCode != 403) return res;
     }
     throw Exception('SoundCloud: доступ запрещён');

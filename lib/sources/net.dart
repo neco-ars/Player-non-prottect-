@@ -1,9 +1,45 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/retry.dart';
 
 /// В браузере сайты не могут напрямую обращаться к API Яндекса и SoundCloud (CORS).
 /// Поэтому веб-версия ходит через свой прокси на Cloudflare Workers (папка proxy/).
 /// В приложениях для Android/iOS/Windows запросы идут напрямую.
 class Net {
+  /// Один клиент на всё приложение: соединения переиспользуются (keep-alive),
+  /// поэтому не нужно заново устанавливать защищённое соединение на каждый запрос —
+  /// это быстрее и экономит батарею. Сетевые сбои (оборванное TLS-соединение, таймаут,
+  /// 502/503) повторяются до двух раз.
+  static final http.Client client = RetryClient(
+    http.Client(),
+    retries: 2,
+    when: (r) => r.statusCode == 502 || r.statusCode == 503 || r.statusCode == 504,
+    whenError: (e, _) => isTransient(e),
+    delay: (attempt) => Duration(milliseconds: 400 * (attempt + 1)),
+  );
+
+  /// Временный сетевой сбой, после которого стоит повторить запрос.
+  static bool isTransient(Object e) {
+    if (e is TimeoutException || e is http.ClientException) return true;
+    final s = '$e';
+    return s.contains('Handshake') ||
+        s.contains('SocketException') ||
+        s.contains('Connection reset') ||
+        s.contains('Connection closed') ||
+        s.contains('Connection terminated');
+  }
+
+  /// Понятный текст сетевой ошибки для пользователя.
+  static String describe(Object e) {
+    final s = '$e';
+    if (s.contains('Handshake')) return 'не удалось установить защищённое соединение (сеть или провайдер обрывает его)';
+    if (s.contains('SocketException') || s.contains('Failed host lookup')) return 'нет соединения с сервером';
+    if (e is TimeoutException) return 'сервер не ответил вовремя';
+    return s.replaceFirst('Exception: ', '');
+  }
+
   /// Адрес прокси, вшитый при сборке: --dart-define=PROXY_URL=https://...workers.dev
   static const _builtIn = String.fromEnvironment('PROXY_URL');
 

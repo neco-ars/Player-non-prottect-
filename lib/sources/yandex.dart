@@ -35,7 +35,7 @@ class YandexSource extends MusicSource {
       };
 
   Future<dynamic> _get(String path, [Map<String, String>? q]) async {
-    final res = await http.get(Net.wrap(Uri.https(_api, path, q)), headers: _headers);
+    final res = await Net.client.get(Net.wrap(Uri.https(_api, path, q)), headers: _headers);
     if (res.statusCode == 401) throw Exception('Яндекс: токен недействителен');
     if (res.statusCode != 200) throw Exception('Яндекс: HTTP ${res.statusCode}');
     return jsonDecode(utf8.decode(res.bodyBytes))['result'];
@@ -93,7 +93,7 @@ class YandexSource extends MusicSource {
         return (b['bitrateInKbps'] as num).compareTo(a['bitrateInKbps'] as num);
       });
     if (variants.isEmpty) throw Exception('Яндекс: трек недоступен');
-    final dl = await http.get(Net.wrap(Uri.parse(variants.first['downloadInfoUrl'] as String)), headers: _headers);
+    final dl = await Net.client.get(Net.wrap(Uri.parse(variants.first['downloadInfoUrl'] as String)), headers: _headers);
     final doc = XmlDocument.parse(dl.body);
     String v(String name) => doc.findAllElements(name).first.innerText;
     final host = v('host'), path = v('path'), ts = v('ts'), s = v('s');

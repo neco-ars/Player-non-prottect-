@@ -15,10 +15,11 @@ const ALLOWED_HOSTS = [
   /^api-v2\.soundcloud\.com$/,
   /^a-v2\.sndcdn\.com$/, // скрипты сайта, оттуда берётся client_id
   /^api\.audiomack\.com$/,
+  /^zvuk\.com$/, // Звук: гостевой токен и GraphQL API
 ];
 
 // Какие заголовки клиента пересылаем дальше.
-const FORWARD_HEADERS = ['authorization', 'x-yandex-music-client', 'accept', 'accept-language', 'content-type'];
+const FORWARD_HEADERS = ['authorization', 'x-yandex-music-client', 'x-auth-token', 'accept', 'accept-language', 'content-type'];
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
@@ -34,7 +35,7 @@ export default {
     const cors = {
       'Access-Control-Allow-Origin': allowed || '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Authorization, X-Yandex-Music-Client, Accept, Content-Type',
+      'Access-Control-Allow-Headers': 'Authorization, X-Yandex-Music-Client, X-Auth-Token, Accept, Content-Type',
       // ничего не кэшируем: ответы зависят от токенов пользователя
       'Access-Control-Max-Age': '86400',
       Vary: 'Origin',
@@ -65,6 +66,10 @@ export default {
       'User-Agent',
       target.hostname.endsWith('yandex.net') ? 'Yandex-Music-API' : BROWSER_UA,
     );
+    if (target.hostname === 'zvuk.com') {
+      headers.set('Referer', 'https://zvuk.com/');
+      headers.set('Origin', 'https://zvuk.com');
+    }
 
     const upstream = await fetch(target.toString(), {
       method: request.method,

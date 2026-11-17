@@ -1,10 +1,9 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../services/app_services.dart';
 import '../services/player_service.dart';
+import 'position.dart';
 import 'theme.dart';
 import 'track_menu.dart';
 import 'widgets.dart';
@@ -39,11 +38,21 @@ class NowPlayingPage extends StatelessWidget {
         return Scaffold(
           backgroundColor: AppColors.bg,
           body: Stack(fit: StackFit.expand, children: [
-            // размытая обложка на фоне
+            // «размытая» обложка на фоне: декодируем её крошечной (12 px) и растягиваем со сглаживанием.
+            // Выглядит как размытие, но не нагружает видеочип в отличие от настоящего фильтра blur.
             if (t.coverUrl != null)
-              ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
-                child: Image.network(t.coverUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox()),
+              RepaintBoundary(
+                child: Opacity(
+                  opacity: 0.85,
+                  child: t.coverUrl!.startsWith('file:')
+                      ? const SizedBox()
+                      : Image.network(t.coverUrl!,
+                          fit: BoxFit.cover,
+                          cacheWidth: 12,
+                          filterQuality: FilterQuality.medium,
+                          gaplessPlayback: true,
+                          errorBuilder: (_, __, ___) => const SizedBox()),
+                ),
               ),
             const DecoratedBox(
               decoration: BoxDecoration(
@@ -294,11 +303,11 @@ class _SeekBarState extends State<_SeekBar> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<Duration>(
-      stream: widget.player.positionStream,
-      builder: (context, snap) {
-        final total = widget.player.duration ?? Duration.zero;
-        final pos = snap.data ?? Duration.zero;
+    // полторы-две перерисовки в секунду достаточно для плавного ползунка
+    return PositionBuilder(
+      player: widget.player,
+      period: const Duration(milliseconds: 500),
+      builder: (context, pos, total) {
         final max = total.inMilliseconds.toDouble();
         final value = (_drag ?? pos.inMilliseconds.toDouble()).clamp(0.0, max > 0 ? max : 1.0);
         final shown = _drag != null ? Duration(milliseconds: _drag!.round()) : pos;

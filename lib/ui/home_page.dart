@@ -20,7 +20,7 @@ class _HomePageState extends State<HomePage> {
   late Future<List<RecSection>> _future = app.recs.forYou();
 
   Future<void> _refresh() async {
-    final f = app.recs.forYou();
+    final f = app.recs.forYou(force: true);
     setState(() => _future = f);
     await f;
   }

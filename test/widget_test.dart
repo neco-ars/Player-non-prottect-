@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/sources/audiomack.dart';
 import 'package:music_player/sources/net.dart';
+import 'package:music_player/sources/zvuk.dart';
 
 void main() {
   test('версии одной песни с разных площадок объединяются', () {
@@ -57,6 +58,19 @@ void main() {
     );
     expect(header, contains('oauth_signature="${AudiomackSource.pct('75ASSZ6fUoFhA8XLALc5X9fO09A=')}"'));
     expect(header, startsWith('OAuth '));
+  });
+
+  test('обложка Звука: относительный путь и размер', () {
+    expect(ZvukSource.coverUrl('/pic?type=release&id=5'), 'https://zvuk.com/pic?type=release&id=5&size=300x300');
+    expect(ZvukSource.coverUrl('https://cdn.zvuk.com/pic?id=5&size={size}'), contains('size=300x300'));
+    expect(ZvukSource.coverUrl(null), isNull);
+  });
+
+  test('сетевые сбои распознаются как временные', () {
+    expect(Net.isTransient(Exception('HandshakeException: Connection terminated during handshake')), true);
+    expect(Net.isTransient(Exception('Яндекс: токен недействителен')), false);
+    expect(Net.describe(Exception('HandshakeException: Connection terminated during handshake')),
+        contains('защищённое соединение'));
   });
 
   test('адрес прокси без https дополняется', () {

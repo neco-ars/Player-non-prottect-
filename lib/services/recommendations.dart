@@ -49,9 +49,27 @@ class Recommendations {
     ];
   }
 
-  Future<List<RecSection>> forYou() async {
+  List<RecSection>? _cache;
+  DateTime? _cacheAt;
+
+  /// Подборки для главной. Результат держим 20 минут, чтобы не скачивать всё заново
+  /// при каждом открытии; [force] — обновить (кнопка и «потянуть вниз»).
+  Future<List<RecSection>> forYou({bool force = false}) async {
+    if (!force && _cache != null && DateTime.now().difference(_cacheAt!) < const Duration(minutes: 20)) {
+      return _cache!;
+    }
+    final result = await _buildForYou();
+    _cache = result;
+    _cacheAt = DateTime.now();
+    return result;
+  }
+
+  Future<List<RecSection>> _buildForYou() async {
     final sections = <RecSection>[];
     final futures = <Future<void>>[];
+    // тренды запускаем сразу, параллельно с остальным
+    final trendingF = _safe(() => audius.trending());
+    final rapF = _safe(() => audius.trending(genre: 'Hip-Hop/Rap'));
 
     if (yandex.isConfigured) {
       futures.add(_safe(yandex.myWave).then((w) {
@@ -87,16 +105,16 @@ class Recommendations {
       sections.add(RecSection('Недавно слушал', library.history.take(20).toList()));
     }
     // тренды недели на Audius — всегда, чтобы главная не была пустой
-    final trending = await _safe(() => audius.trending());
+    final trending = await trendingF;
     if (trending.isNotEmpty) sections.add(RecSection('В тренде', trending.take(20).toList(), subtitle: 'Audius'));
-    final rap = await _safe(() => audius.trending(genre: 'Hip-Hop/Rap'));
+    final rap = await rapF;
     if (rap.isNotEmpty) sections.add(RecSection('Рэп в тренде', rap.take(20).toList(), subtitle: 'Audius'));
     return sections;
   }
 
   static Future<List<Track>> _safe(Future<List<Track>> Function() f) async {
     try {
-      return await f().timeout(const Duration(seconds: 15));
+      return await f().timeout(const Duration(seconds: 10));
     } catch (_) {
       return [];
     }

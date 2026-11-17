@@ -17,6 +17,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final _token = TextEditingController(text: app.settings.yandexToken ?? '');
   late final _ytKey = TextEditingController(text: app.settings.youtubeKey ?? '');
   late final _proxy = TextEditingController(text: app.settings.proxyUrl ?? '');
+  late final _zvuk = TextEditingController(text: app.settings.zvukToken ?? '');
   late final _amKey = TextEditingController(text: app.settings.audiomackKey ?? '');
   late final _amSecret = TextEditingController(text: app.settings.audiomackSecret ?? '');
 
@@ -171,6 +172,42 @@ class _SettingsPageState extends State<SettingsPage> {
             child: const Text('Сохранить'),
           ),
         ],
+        const Divider(height: 40),
+        Row(children: [Expanded(child: Text('Звук', style: h)), _status(app.zvuk.isConfigured)]),
+        const SizedBox(height: 8),
+        const Text(
+          'Работает сразу, без входа: поиск и полные треки в 128 кбит/с.\n\n'
+          'Чтобы слушать в 320 кбит/с со своей подпиской, вставь токен своего аккаунта:\n'
+          '1. Войди на zvuk.com в браузере.\n'
+          '2. Не закрывая сайт, открой ссылку ниже — откроется текст с данными профиля.\n'
+          '3. Скопируй значение поля "token" (без кавычек) и вставь сюда.\n'
+          'Токен никому не показывай.',
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.open_in_new),
+          label: const Text('Открыть zvuk.com/api/tiny/profile'),
+          onPressed: () =>
+              launchUrl(Uri.parse('https://zvuk.com/api/tiny/profile'), mode: LaunchMode.externalApplication),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _zvuk,
+          obscureText: true,
+          decoration: const InputDecoration(
+              labelText: 'Токен Звука (необязательно)', border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 8),
+        FilledButton(
+          onPressed: () {
+            final v = _zvuk.text.trim();
+            app.settings.zvukToken = v;
+            app.zvuk.userToken = v.isEmpty ? null : v;
+            _toast(v.isEmpty ? 'Звук: гостевой доступ' : 'Звук: вход по токену');
+            setState(() {});
+          },
+          child: const Text('Сохранить'),
+        ),
         const Divider(height: 40),
         Row(children: [Expanded(child: Text('Audiomack', style: h)), _status(app.audiomack.isConfigured)]),
         const SizedBox(height: 8),

@@ -15,6 +15,10 @@ class Settings {
   String? get youtubeKey => _str('youtube_key');
   set youtubeKey(String? v) => _setStr('youtube_key', v);
 
+  /// Токен своего аккаунта Звука (необязательно: без него работает гостевой доступ).
+  String? get zvukToken => _str('zvuk_token');
+  set zvukToken(String? v) => _setStr('zvuk_token', v);
+
   /// Ключи Audiomack Data API (выдаёт Audiomack по запросу).
   String? get audiomackKey => _str('audiomack_key');
   set audiomackKey(String? v) => _setStr('audiomack_key', v);

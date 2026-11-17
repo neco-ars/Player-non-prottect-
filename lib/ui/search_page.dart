@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/track.dart';
@@ -35,23 +37,42 @@ class _SearchPageState extends State<SearchPage> {
   bool _loading = false;
   bool _explicitOnly = false;
 
+  StreamSubscription<SearchResult>? _sub;
+
   Future<void> _search([String? q]) async {
     if (q != null) _controller.text = q;
     final query = _controller.text.trim();
     if (query.isEmpty) return;
     FocusScope.of(context).unfocus();
-    setState(() => _loading = true);
-    final r = await app.search.search(query);
-    if (!mounted) return;
+    await _sub?.cancel();
     setState(() {
-      _result = r;
-      _loading = false;
+      _loading = true;
+      _result = null;
+    });
+    // результаты показываем по мере ответа площадок, не дожидаясь самой медленной
+    _sub = app.search.searchStream(query).listen((r) {
+      if (!mounted) return;
+      setState(() {
+        _result = r;
+        _loading = !r.done;
+      });
     });
   }
 
   void _clear() {
+    _sub?.cancel();
     _controller.clear();
-    setState(() => _result = null);
+    setState(() {
+      _result = null;
+      _loading = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _controller.dispose();
+    super.dispose();
   }
 
   List<TrackGroup> get _groups {
@@ -119,7 +140,15 @@ class _SearchPageState extends State<SearchPage> {
               onChanged: (_) => setState(() {}),
             ),
           ),
-          if (_loading) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator(minHeight: 2)),
+          if (_loading) ...[
+            const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator(minHeight: 2)),
+            if (_result != null && _result!.pending.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Text('Ещё ищем: ${_result!.pending.join(', ')}',
+                    style: const TextStyle(fontSize: 12, color: AppColors.textDim)),
+              ),
+          ],
           if (missing.isNotEmpty)
             _Notice(
               text: noSources
@@ -140,6 +169,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _results(bool noSources) {
+    if (_groups.isEmpty && _loading) return const SizedBox.shrink(); // ждём первую площадку
     if (_groups.isEmpty) {
       return Center(
         child: Padding(

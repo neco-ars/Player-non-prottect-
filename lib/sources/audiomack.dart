@@ -80,9 +80,9 @@ class AudiomackSource extends MusicSource {
     );
     final headers = {'Authorization': auth};
     final res = method == 'GET'
-        ? await http.get(Net.wrap(Uri.parse(url).replace(queryParameters: params.isEmpty ? null : params)),
+        ? await Net.client.get(Net.wrap(Uri.parse(url).replace(queryParameters: params.isEmpty ? null : params)),
             headers: headers)
-        : await http.post(Net.wrap(Uri.parse(url)),
+        : await Net.client.post(Net.wrap(Uri.parse(url)),
             headers: {...headers, 'Content-Type': 'application/x-www-form-urlencoded'}, body: params);
     if (res.statusCode == 401) throw Exception('Audiomack: ключи не подошли (401)');
     if (res.statusCode == 429) throw Exception('Audiomack: слишком много запросов, попробуй позже');

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../models/track.dart';
+import '../sources/net.dart';
 import 'library.dart';
 import 'recommendations.dart';
 import 'search_service.dart';
@@ -262,12 +263,22 @@ class PlayerService extends ChangeNotifier {
         _videoRequests.add(t);
       } else {
         try {
-          await _startAudio(t);
+          try {
+            await _startAudio(t);
+          } catch (e) {
+            // временный сетевой сбой (оборванное соединение) — одна повторная попытка
+            if (!Net.isTransient(e) || current != t) rethrow;
+            await Future.delayed(const Duration(milliseconds: 800));
+            if (current != t) return;
+            await _startAudio(t);
+          }
         } catch (e) {
           // поток не играет — пробуем ту же песню на другой площадке
+          final failed = t;
           final alt = await _alternative(t);
           if (alt == null || current != t) rethrow;
-          error = '${t.title}: ${_msg(e)}. Играю версию из ${alt.source == 'yandex' ? 'Яндекса' : alt.source}';
+          error = '«${failed.title}» (${search.sourceOf(failed).name}): ${_msg(e)}. '
+              'Играю версию из ${search.sourceOf(alt).name}';
           _queue[i] = t = alt;
           await _startAudio(t);
         }
@@ -277,7 +288,7 @@ class PlayerService extends ChangeNotifier {
       unawaited(_lookForOriginal(t));
     } catch (e) {
       // ошибку оставляем видимой, даже когда переходим к следующему треку
-      error = 'Пропущен «${t.title}»: ${_msg(e)}';
+      error = 'Пропущен «${t.title}» (${search.sourceOf(t).name}): ${_msg(e)}';
       debugPrint(error);
       if (_index + 1 < _queue.length || radio) {
         loading = false;
@@ -291,7 +302,8 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  static String _msg(Object e) => '$e'.replaceFirst('Exception: ', '').replaceFirst(RegExp(r'^PlayerException.*?\): '), '');
+  static String _msg(Object e) =>
+      Net.describe(e).replaceFirst(RegExp(r'^PlayerException.*?\): '), '');
 
   void clearError() {
     error = null;

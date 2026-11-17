@@ -12,9 +12,10 @@ const sourceColors = {
   'soundcloud': Color(0xFFFF5500),
   'audius': Color(0xFFCC0FE0),
   'audiomack': Color(0xFFFFA200),
+  'zvuk': Color(0xFF3D6BFF),
   'youtube': Color(0xFFFF0033),
 };
-const sourceNames = {'local': 'Мои файлы', 'yandex': 'Яндекс', 'soundcloud': 'SoundCloud', 'audius': 'Audius', 'audiomack': 'Audiomack', 'youtube': 'YouTube'};
+const sourceNames = {'local': 'Мои файлы', 'yandex': 'Яндекс', 'soundcloud': 'SoundCloud', 'audius': 'Audius', 'audiomack': 'Audiomack', 'zvuk': 'Звук', 'youtube': 'YouTube'};
 
 String fmtDuration(Duration? d) {
   if (d == null || d == Duration.zero) return '';
@@ -38,6 +39,9 @@ class Cover extends StatelessWidget {
       child: Icon(placeholderIcon, size: size * 0.45, color: AppColors.textDim),
     );
     final u = url;
+    // декодируем картинку в том размере, в каком она на экране, а не в исходном —
+    // меньше работы процессору и памяти (батарея), быстрее появляется
+    final px = (size * MediaQuery.devicePixelRatioOf(context)).round();
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: u == null
@@ -45,9 +49,17 @@ class Cover extends StatelessWidget {
           : u.startsWith('file:') && !kIsWeb
               // обложка из «Моих файлов» лежит на устройстве
               ? Image.file(File(Uri.parse(u).toFilePath()),
-                  width: size, height: size, fit: BoxFit.cover, errorBuilder: (_, __, ___) => placeholder)
+                  width: size,
+                  height: size,
+                  cacheWidth: px,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => placeholder)
               : Image.network(u,
-                  width: size, height: size, fit: BoxFit.cover, errorBuilder: (_, __, ___) => placeholder),
+                  width: size,
+                  height: size,
+                  cacheWidth: px,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => placeholder),
     );
   }
 }

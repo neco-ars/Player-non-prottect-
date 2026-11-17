@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/track.dart';
+import 'net.dart';
 import 'source.dart';
 
 /// YouTube: поиск через официальный YouTube Data API (нужен бесплатный ключ),
@@ -21,7 +22,7 @@ class YouTubeSource extends MusicSource {
   static Uri watchUrl(String videoId) => Uri.parse('https://www.youtube.com/watch?v=$videoId');
 
   Future<Map> _get(String path, Map<String, String> q) async {
-    final res = await http.get(Uri.https('www.googleapis.com', '/youtube/v3/$path', {...q, 'key': apiKey!}));
+    final res = await Net.client.get(Uri.https('www.googleapis.com', '/youtube/v3/$path', {...q, 'key': apiKey!}));
     final body = jsonDecode(utf8.decode(res.bodyBytes)) as Map;
     if (res.statusCode != 200) {
       final reason = ((body['error'] as Map?)?['errors'] as List?)?.firstOrNull?['reason'];
