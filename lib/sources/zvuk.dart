@@ -29,16 +29,45 @@ class ZvukSource extends MusicSource {
   @override
   bool get isConfigured => !Net.proxyMissing;
 
-  static const _searchQuery = r'''
-query search($query: String, $limit: Int) {
+  // Поля трека и альбома — одинаковые во всех запросах.
+  static const _trackFields = 'id title duration explicit artists { id title } release { id title date image { src } }';
+  static const _releaseFields = 'id title date type explicit image { src } artists { id title }';
+
+  static const _searchQuery = '''
+query search(\$query: String, \$limit: Int) {
+  search(query: \$query) {
+    tracks(limit: \$limit) { items { $_trackFields } }
+  }
+}''';
+
+  static const _searchReleasesQuery = '''
+query searchReleases(\$query: String, \$limit: Int) {
+  search(query: \$query) {
+    releases(limit: \$limit) { items { $_releaseFields } }
+  }
+}''';
+
+  static const _searchArtistsQuery = r'''
+query searchArtists($query: String, $limit: Int) {
   search(query: $query) {
-    tracks(limit: $limit) {
-      items {
-        id title duration explicit
-        artists { title }
-        release { title date image { src } }
-      }
-    }
+    artists(limit: $limit) { items { id title image { src } } }
+  }
+}''';
+
+  static const _releaseQuery = '''
+query getReleases(\$ids: [ID!]!) {
+  getReleases(ids: \$ids) {
+    $_releaseFields
+    tracks { $_trackFields }
+  }
+}''';
+
+  static const _artistQuery = '''
+query getArtists(\$ids: [ID!]!) {
+  getArtists(ids: \$ids) {
+    id title image { src }
+    popularTracks(offset: 0, limit: 20) { $_trackFields }
+    releases(offset: 0, limit: 60) { $_releaseFields }
   }
 }''';
 
@@ -107,19 +136,100 @@ query getStream($ids: [ID!]!) {
     return u.replace(queryParameters: {...u.queryParameters, 'size': '${size}x$size'}).toString();
   }
 
-  Track _parse(Map j) {
-    final release = (j['release'] as Map?) ?? {};
-    final date = '${release['date'] ?? ''}';
+  static int? _year(dynamic date) {
+    final d = '${date ?? ''}';
+    return d.length >= 4 ? int.tryParse(d.substring(0, 4)) : null;
+  }
+
+  static String _artists(dynamic list) =>
+      ((list as List?) ?? []).map((a) => (a as Map)['title']).whereType<String>().join(', ');
+
+  /// [fallbackRelease] — для треков внутри альбома, у которых release может не прийти.
+  Track _parse(Map j, {Map? fallbackRelease}) {
+    final release = (j['release'] as Map?) ?? fallbackRelease ?? {};
+    final artists = (j['artists'] as List?) ?? [];
     return Track(
       source: id,
       id: '${j['id']}',
       title: '${j['title'] ?? ''}',
-      artist: ((j['artists'] as List?) ?? []).map((a) => (a as Map)['title']).whereType<String>().join(', '),
+      artist: _artists(artists),
       album: release['title'] as String?,
-      year: date.length >= 4 ? int.tryParse(date.substring(0, 4)) : null,
+      year: _year(release['date']),
       coverUrl: coverUrl((release['image'] as Map?)?['src'] as String?),
       duration: Duration(seconds: (j['duration'] as num?)?.toInt() ?? 0),
       explicit: j['explicit'] == true,
+      extra: {
+        if (release['id'] != null) 'albumId': '${release['id']}',
+        if (artists.isNotEmpty && (artists.first as Map)['id'] != null) 'artistId': '${(artists.first as Map)['id']}',
+      },
+    );
+  }
+
+  AlbumRef _parseRelease(Map r) => AlbumRef(
+        source: id,
+        id: '${r['id']}',
+        title: '${r['title'] ?? ''}',
+        artist: _artists(r['artists']),
+        coverUrl: coverUrl((r['image'] as Map?)?['src'] as String?),
+        year: _year(r['date']),
+        explicit: r['explicit'] == true,
+        type: r['type'] as String?,
+      );
+
+  ArtistRef _parseArtist(Map a) => ArtistRef(
+        source: id,
+        id: '${a['id']}',
+        name: '${a['title'] ?? ''}',
+        imageUrl: coverUrl((a['image'] as Map?)?['src'] as String?),
+      );
+
+  @override
+  bool get hasCatalog => true;
+
+  @override
+  Future<List<AlbumRef>> searchAlbums(String query) async {
+    final data = await _gql('searchReleases', _searchReleasesQuery, {'query': query, 'limit': 20});
+    final items = ((((data['search'] as Map?)?['releases']) as Map?)?['items'] as List?) ?? [];
+    return items.whereType<Map>().map(_parseRelease).toList();
+  }
+
+  @override
+  Future<List<ArtistRef>> searchArtists(String query) async {
+    final data = await _gql('searchArtists', _searchArtistsQuery, {'query': query, 'limit': 10});
+    final items = ((((data['search'] as Map?)?['artists']) as Map?)?['items'] as List?) ?? [];
+    return items.whereType<Map>().map(_parseArtist).toList();
+  }
+
+  @override
+  Future<AlbumInfo?> album(String albumId) async {
+    final data = await _gql('getReleases', _releaseQuery, {
+      'ids': [albumId]
+    });
+    final list = (data['getReleases'] as List?) ?? [];
+    if (list.isEmpty || list.first is! Map) return null;
+    final r = list.first as Map;
+    final artists = (r['artists'] as List?) ?? [];
+    return AlbumInfo(
+      _parseRelease(r),
+      ((r['tracks'] as List?) ?? []).whereType<Map>().map((t) => _parse(t, fallbackRelease: r)).toList(),
+      artist: artists.isEmpty ? null : _parseArtist(artists.first as Map),
+    );
+  }
+
+  @override
+  Future<ArtistInfo?> artist(String artistId) async {
+    final data = await _gql('getArtists', _artistQuery, {
+      'ids': [artistId]
+    });
+    final list = (data['getArtists'] as List?) ?? [];
+    if (list.isEmpty || list.first is! Map) return null;
+    final a = list.first as Map;
+    final releases = ((a['releases'] as List?) ?? []).whereType<Map>().map(_parseRelease).toList()
+      ..sort((x, y) => (y.year ?? 0).compareTo(x.year ?? 0)); // новые сверху
+    return ArtistInfo(
+      _parseArtist(a),
+      topTracks: ((a['popularTracks'] as List?) ?? []).whereType<Map>().map((t) => _parse(t)).toList(),
+      albums: releases,
     );
   }
 

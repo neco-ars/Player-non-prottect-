@@ -59,7 +59,68 @@ class AudiusSource extends MusicSource {
       coverUrl: art['480x480'] ?? art['150x150'],
       duration: Duration(seconds: (j['duration'] as num?)?.toInt() ?? 0),
       explicit: Track.explicitTags.hasMatch('$title $tags'),
-      extra: {'permalink': j['permalink']},
+      extra: {'permalink': j['permalink'], if (user['id'] != null) 'artistId': '${user['id']}'},
+    );
+  }
+
+  AlbumRef _parseAlbum(Map p) {
+    final art = p['artwork'] as Map? ?? {};
+    final user = p['user'] as Map? ?? {};
+    final release = '${p['release_date'] ?? ''}';
+    return AlbumRef(
+      source: id,
+      id: '${p['id']}',
+      title: '${p['playlist_name'] ?? ''}',
+      artist: '${user['name'] ?? user['handle'] ?? ''}',
+      coverUrl: art['480x480'] ?? art['150x150'],
+      year: release.length >= 4 ? int.tryParse(release.substring(0, 4)) : null,
+      type: p['is_album'] == true ? 'album' : 'playlist',
+    );
+  }
+
+  ArtistRef _parseUser(Map u) => ArtistRef(
+        source: id,
+        id: '${u['id']}',
+        name: '${u['name'] ?? u['handle'] ?? ''}',
+        imageUrl: ((u['profile_picture'] as Map?) ?? {})['480x480'] ?? ((u['profile_picture'] as Map?) ?? {})['150x150'],
+      );
+
+  @override
+  bool get hasCatalog => true;
+
+  @override
+  Future<List<AlbumRef>> searchAlbums(String query) async {
+    final data = await _get('/playlists/search', {'query': query, 'limit': '15'});
+    return ((data as List?) ?? []).whereType<Map>().where((p) => p['is_album'] == true).map(_parseAlbum).toList();
+  }
+
+  @override
+  Future<List<ArtistRef>> searchArtists(String query) async {
+    final data = await _get('/users/search', {'query': query, 'limit': '10'});
+    return ((data as List?) ?? []).whereType<Map>().map(_parseUser).toList();
+  }
+
+  @override
+  Future<AlbumInfo?> album(String albumId) async {
+    final results = await Future.wait([_get('/playlists/$albumId'), _get('/playlists/$albumId/tracks')]);
+    final meta = results[0] is List && (results[0] as List).isNotEmpty ? (results[0] as List).first as Map : null;
+    if (meta == null) return null;
+    final user = meta['user'] as Map?;
+    return AlbumInfo(_parseAlbum(meta), _parseList(results[1]), artist: user == null ? null : _parseUser(user));
+  }
+
+  @override
+  Future<ArtistInfo?> artist(String artistId) async {
+    final results = await Future.wait([
+      _get('/users/$artistId'),
+      _get('/users/$artistId/tracks', {'sort': 'plays', 'limit': '20'}),
+      _get('/users/$artistId/albums', {'limit': '50'}),
+    ]);
+    if (results[0] is! Map) return null;
+    return ArtistInfo(
+      _parseUser(results[0] as Map),
+      topTracks: _parseList(results[1]),
+      albums: ((results[2] as List?) ?? []).whereType<Map>().map(_parseAlbum).toList(),
     );
   }
 

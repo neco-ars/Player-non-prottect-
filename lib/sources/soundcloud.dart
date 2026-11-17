@@ -94,12 +94,99 @@ class SoundCloudSource extends MusicSource {
       duration: Duration(milliseconds: (j['duration'] as num?)?.toInt() ?? 0),
       explicit: meta['explicit'] == true || Track.explicitTags.hasMatch(title),
       previewOnly: j['policy'] == 'SNIP', // треки Go+, доступен только фрагмент
-      extra: {'transcodings': transcodings, 'auth': j['track_authorization'], 'url': j['permalink_url']},
+      extra: {
+        'transcodings': transcodings,
+        'auth': j['track_authorization'],
+        'url': j['permalink_url'],
+        if (user['id'] != null) 'artistId': '${user['id']}',
+      },
     );
   }
 
   List<Track> _parseList(String body) =>
       ((jsonDecode(body)['collection'] as List?) ?? []).map((j) => _parse(j as Map)).whereType<Track>().toList();
+
+  static String? _art(dynamic url) => (url as String?)?.replaceAll('-large', '-t300x300');
+
+  AlbumRef _parseAlbum(Map p) {
+    final user = (p['user'] as Map?) ?? {};
+    final date = '${p['release_date'] ?? p['published_at'] ?? p['created_at'] ?? ''}';
+    return AlbumRef(
+      source: id,
+      id: '${p['id']}',
+      title: '${p['title'] ?? ''}',
+      artist: '${user['username'] ?? ''}',
+      coverUrl: _art(p['artwork_url'] ?? user['avatar_url']),
+      year: date.length >= 4 ? int.tryParse(date.substring(0, 4)) : null,
+      type: p['set_type'] as String?,
+    );
+  }
+
+  ArtistRef _parseUser(Map u) => ArtistRef(
+        source: id,
+        id: '${u['id']}',
+        name: '${u['username'] ?? ''}',
+        imageUrl: _art(u['avatar_url']),
+      );
+
+  @override
+  bool get hasCatalog => true;
+
+  @override
+  Future<List<AlbumRef>> searchAlbums(String query) async {
+    final res = await _get('https://api-v2.soundcloud.com/search/albums', {'q': query, 'limit': '15'});
+    if (res.statusCode != 200) return [];
+    return ((jsonDecode(res.body)['collection'] as List?) ?? []).whereType<Map>().map(_parseAlbum).toList();
+  }
+
+  @override
+  Future<List<ArtistRef>> searchArtists(String query) async {
+    final res = await _get('https://api-v2.soundcloud.com/search/users', {'q': query, 'limit': '10'});
+    if (res.statusCode != 200) return [];
+    return ((jsonDecode(res.body)['collection'] as List?) ?? []).whereType<Map>().map(_parseUser).toList();
+  }
+
+  @override
+  Future<AlbumInfo?> album(String albumId) async {
+    final res = await _get('https://api-v2.soundcloud.com/playlists/$albumId');
+    if (res.statusCode != 200) return null;
+    final p = jsonDecode(res.body) as Map;
+    final raw = ((p['tracks'] as List?) ?? []).whereType<Map>().toList();
+    // SoundCloud отдаёт полные данные только первых треков, остальные — одними id
+    final missing = raw.where((t) => t['media'] == null).map((t) => '${t['id']}').toList();
+    final full = <String, Map>{};
+    for (var i = 0; i < missing.length; i += 50) {
+      final ids = missing.sublist(i, i + 50 > missing.length ? missing.length : i + 50).join(',');
+      final r = await _get('https://api-v2.soundcloud.com/tracks', {'ids': ids});
+      if (r.statusCode == 200) {
+        for (final t in (jsonDecode(r.body) as List).whereType<Map>()) {
+          full['${t['id']}'] = t;
+        }
+      }
+    }
+    final tracks = [
+      for (final t in raw) _parse(t['media'] == null ? (full['${t['id']}'] ?? t) : t),
+    ].whereType<Track>().toList();
+    final user = p['user'] as Map?;
+    return AlbumInfo(_parseAlbum(p), tracks, artist: user == null ? null : _parseUser(user));
+  }
+
+  @override
+  Future<ArtistInfo?> artist(String artistId) async {
+    final results = await Future.wait([
+      _get('https://api-v2.soundcloud.com/users/$artistId'),
+      _get('https://api-v2.soundcloud.com/users/$artistId/toptracks', {'limit': '20'}),
+      _get('https://api-v2.soundcloud.com/users/$artistId/albums', {'limit': '50'}),
+    ]);
+    if (results[0].statusCode != 200) return null;
+    return ArtistInfo(
+      _parseUser(jsonDecode(results[0].body) as Map),
+      topTracks: results[1].statusCode == 200 ? _parseList(results[1].body) : const [],
+      albums: results[2].statusCode == 200
+          ? ((jsonDecode(results[2].body)['collection'] as List?) ?? []).whereType<Map>().map(_parseAlbum).toList()
+          : const [],
+    );
+  }
 
   @override
   Future<List<Track>> search(String query) async {

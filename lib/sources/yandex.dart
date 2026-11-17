@@ -56,11 +56,78 @@ class YandexSource extends MusicSource {
       coverUrl: cover == null ? null : 'https://${cover.replaceAll('%%', '400x400')}',
       duration: Duration(milliseconds: (j['durationMs'] as num?)?.toInt() ?? 0),
       explicit: j['contentWarning'] == 'explicit',
+      extra: {
+        if (album['id'] != null) 'albumId': '${album['id']}',
+        if (((j['artists'] as List?) ?? []).isNotEmpty) 'artistId': '${(j['artists'] as List).first['id']}',
+      },
     );
   }
 
   List<Track> _parseList(List? list) =>
       (list ?? []).cast<Map>().where((j) => j['available'] != false).map(_parse).toList();
+
+  static String? _cover(String? uri, [int size = 400]) =>
+      uri == null || uri.isEmpty ? null : 'https://${uri.replaceAll('%%', '${size}x$size')}';
+
+  AlbumRef _parseAlbum(Map a) => AlbumRef(
+        source: id,
+        id: '${a['id']}',
+        title: [a['title'], a['version']].where((s) => s != null && '$s'.isNotEmpty).join(' '),
+        artist: ((a['artists'] as List?) ?? []).map((x) => x['name']).join(', '),
+        coverUrl: _cover(a['coverUri'] as String?),
+        year: a['year'] as int?,
+        explicit: a['contentWarning'] == 'explicit',
+        type: a['type'] as String?,
+      );
+
+  ArtistRef _parseArtist(Map a) => ArtistRef(
+        source: id,
+        id: '${a['id']}',
+        name: '${a['name'] ?? ''}',
+        imageUrl: _cover((a['cover'] as Map?)?['uri'] as String?),
+      );
+
+  @override
+  bool get hasCatalog => true;
+
+  @override
+  Future<List<AlbumRef>> searchAlbums(String query) async {
+    final r = await _get('/search', {'text': query, 'type': 'album', 'page': '0'});
+    final list = (((r as Map?)?['albums'] as Map?)?['results'] as List?) ?? [];
+    return list.whereType<Map>().map(_parseAlbum).toList();
+  }
+
+  @override
+  Future<List<ArtistRef>> searchArtists(String query) async {
+    final r = await _get('/search', {'text': query, 'type': 'artist', 'page': '0'});
+    final list = (((r as Map?)?['artists'] as Map?)?['results'] as List?) ?? [];
+    return list.whereType<Map>().map(_parseArtist).toList();
+  }
+
+  @override
+  Future<AlbumInfo?> album(String albumId) async {
+    final r = await _get('/albums/$albumId/with-tracks') as Map?;
+    if (r == null) return null;
+    // треки альбома разбиты на «тома» (диски)
+    final volumes = (r['volumes'] as List?) ?? [];
+    final tracks = [for (final v in volumes) ..._parseList(v as List?)];
+    final artists = (r['artists'] as List?) ?? [];
+    return AlbumInfo(_parseAlbum(r), tracks,
+        artist: artists.isEmpty ? null : _parseArtist(artists.first as Map));
+  }
+
+  @override
+  Future<ArtistInfo?> artist(String artistId) async {
+    final r = await _get('/artists/$artistId/brief-info') as Map?;
+    if (r == null || r['artist'] == null) return null;
+    final albums = ((r['albums'] as List?) ?? []).whereType<Map>().map(_parseAlbum).toList()
+      ..sort((x, y) => (y.year ?? 0).compareTo(x.year ?? 0));
+    return ArtistInfo(
+      _parseArtist(r['artist'] as Map),
+      topTracks: _parseList(r['popularTracks'] as List?),
+      albums: albums,
+    );
+  }
 
   @override
   Future<List<Track>> search(String query) async {

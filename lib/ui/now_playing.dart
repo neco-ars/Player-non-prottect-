@@ -3,6 +3,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../services/app_services.dart';
 import '../services/player_service.dart';
+import 'nav.dart';
 import 'position.dart';
 import 'theme.dart';
 import 'track_menu.dart';
@@ -111,18 +112,26 @@ class NowPlayingPage extends StatelessWidget {
                     Row(children: [
                       Expanded(
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(t.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                          // название → альбом с этим треком
+                          GestureDetector(
+                            onTap: () => openAlbumOf(context, t),
+                            child: Text(t.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                          ),
                           const SizedBox(height: 4),
                           Row(children: [
                             if (t.explicit) const ExplicitBadge(),
                             Flexible(
-                              child: Text(t.artist,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 16, color: AppColors.textDim)),
+                              // исполнитель → его страница
+                              child: GestureDetector(
+                                onTap: () => openArtistOf(context, t),
+                                child: Text(t.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 16, color: AppColors.textDim)),
+                              ),
                             ),
                           ]),
                         ]),

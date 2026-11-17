@@ -62,7 +62,69 @@ class LocalSource extends MusicSource with ChangeNotifier {
         coverUrl: e.cover == null ? null : Uri.file(_abs(e.cover!)).toString(),
         duration: e.ms == null ? null : Duration(milliseconds: e.ms!),
         explicit: Track.explicitTags.hasMatch('${e.title} ${e.file}'),
+        // альбом и исполнитель у своих файлов — просто их названия из тегов
+        extra: {if (e.album != null) 'albumId': e.album, 'artistId': e.artist},
       );
+
+  // ---------- альбомы и исполнители по тегам ----------
+
+  @override
+  bool get hasCatalog => true;
+
+  AlbumRef _albumRef(String album, List<_Entry> items) => AlbumRef(
+        source: id,
+        id: album,
+        title: album,
+        artist: items.first.artist,
+        coverUrl: _toTrack(items.firstWhere((e) => e.cover != null, orElse: () => items.first)).coverUrl,
+        year: items.first.year,
+      );
+
+  Map<String, List<_Entry>> get _byAlbum {
+    final m = <String, List<_Entry>>{};
+    for (final e in _entries.where((e) => e.album != null && e.album!.isNotEmpty)) {
+      m.putIfAbsent(e.album!, () => []).add(e);
+    }
+    return m;
+  }
+
+  @override
+  Future<AlbumInfo?> album(String albumId) async {
+    final items = _byAlbum[albumId];
+    if (items == null) return null;
+    return AlbumInfo(_albumRef(albumId, items), items.map(_toTrack).toList(),
+        artist: ArtistRef(source: id, id: items.first.artist, name: items.first.artist));
+  }
+
+  @override
+  Future<ArtistInfo?> artist(String artistId) async {
+    final items = _entries.where((e) => e.artist == artistId).toList();
+    if (items.isEmpty) return null;
+    final albums = _byAlbum.entries.where((a) => a.value.any((e) => e.artist == artistId));
+    return ArtistInfo(
+      ArtistRef(source: id, id: artistId, name: artistId, imageUrl: _toTrack(items.first).coverUrl),
+      topTracks: items.map(_toTrack).toList(),
+      albums: [for (final a in albums) _albumRef(a.key, a.value)],
+    );
+  }
+
+  @override
+  Future<List<AlbumRef>> searchAlbums(String query) async {
+    final q = Track.normalize(query);
+    if (q.isEmpty) return [];
+    return [
+      for (final a in _byAlbum.entries)
+        if (Track.normalize('${a.key} ${a.value.first.artist}').contains(q)) _albumRef(a.key, a.value)
+    ];
+  }
+
+  @override
+  Future<List<ArtistRef>> searchArtists(String query) async {
+    final q = Track.normalize(query);
+    if (q.isEmpty) return [];
+    final names = _entries.map((e) => e.artist).toSet().where((n) => Track.normalize(n).contains(q));
+    return [for (final n in names) ArtistRef(source: id, id: n, name: n)];
+  }
 
   /// Открыть системный выбор файлов и добавить выбранное. Возвращает число добавленных.
   Future<int> pickAndImport() async {

@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../models/track.dart';
 import '../services/app_services.dart';
+import '../services/catalog.dart';
 import '../services/search_service.dart';
+import '../sources/source.dart';
+import 'nav.dart';
 import '../sources/net.dart';
 import 'settings_page.dart';
 import 'theme.dart';
@@ -31,13 +34,27 @@ class SearchPage extends StatefulWidget {
   State<SearchPage> createState() => _SearchPageState();
 }
 
+enum _Mode { tracks, albums, artists }
+
 class _SearchPageState extends State<SearchPage> {
   final _controller = TextEditingController();
-  SearchResult? _result;
+  _Mode _mode = _Mode.tracks;
+  SearchResult? _result; // треки
+  CatalogResult<AlbumRef>? _albums;
+  CatalogResult<ArtistRef>? _artists;
+  String? _searched; // запрос, по которому показаны результаты текущей вкладки
   bool _loading = false;
   bool _explicitOnly = false;
+  List<String> _pending = const [];
+  Map<String, String> _errors = const {};
 
-  StreamSubscription<SearchResult>? _sub;
+  StreamSubscription<Object>? _sub;
+
+  bool get _hasResults => switch (_mode) {
+        _Mode.tracks => _result != null,
+        _Mode.albums => _albums != null,
+        _Mode.artists => _artists != null,
+      };
 
   Future<void> _search([String? q]) async {
     if (q != null) _controller.text = q;
@@ -47,16 +64,36 @@ class _SearchPageState extends State<SearchPage> {
     await _sub?.cancel();
     setState(() {
       _loading = true;
+      _searched = query;
+      _pending = const [];
+      _errors = const {};
       _result = null;
+      _albums = null;
+      _artists = null;
     });
     // результаты показываем по мере ответа площадок, не дожидаясь самой медленной
-    _sub = app.search.searchStream(query).listen((r) {
+    void update(List<String> pending, Map<String, String> errors, void Function() apply) {
       if (!mounted) return;
       setState(() {
-        _result = r;
-        _loading = !r.done;
+        apply();
+        _pending = pending;
+        _errors = errors;
+        _loading = pending.isNotEmpty;
       });
-    });
+    }
+
+    _sub = switch (_mode) {
+      _Mode.tracks => app.search.searchStream(query).listen((r) => update(r.pending, r.errors, () => _result = r)),
+      _Mode.albums => app.catalog.searchAlbums(query).listen((r) => update(r.pending, r.errors, () => _albums = r)),
+      _Mode.artists => app.catalog.searchArtists(query).listen((r) => update(r.pending, r.errors, () => _artists = r)),
+    };
+  }
+
+  void _setMode(_Mode m) {
+    if (m == _mode) return;
+    setState(() => _mode = m);
+    // тот же запрос — сразу ищем на новой вкладке
+    if (_controller.text.trim().isNotEmpty) _search();
   }
 
   void _clear() {
@@ -64,7 +101,12 @@ class _SearchPageState extends State<SearchPage> {
     _controller.clear();
     setState(() {
       _result = null;
+      _albums = null;
+      _artists = null;
+      _searched = null;
       _loading = false;
+      _pending = const [];
+      _errors = const {};
     });
   }
 
@@ -126,12 +168,16 @@ class _SearchPageState extends State<SearchPage> {
               style: const TextStyle(color: Colors.black, fontSize: 16),
               cursorColor: Colors.black,
               decoration: InputDecoration(
-                hintText: 'Что хочешь послушать?',
+                hintText: switch (_mode) {
+                  _Mode.tracks => 'Что хочешь послушать?',
+                  _Mode.albums => 'Название альбома',
+                  _Mode.artists => 'Имя исполнителя',
+                },
                 hintStyle: const TextStyle(color: Color(0xFF535353)),
                 filled: true,
                 fillColor: Colors.white,
                 prefixIcon: const Icon(Icons.search, color: Colors.black),
-                suffixIcon: _controller.text.isEmpty && _result == null
+                suffixIcon: _controller.text.isEmpty && !_hasResults
                     ? null
                     : IconButton(icon: const Icon(Icons.close, color: Colors.black), onPressed: _clear),
                 contentPadding: const EdgeInsets.symmetric(vertical: 12),
@@ -140,12 +186,38 @@ class _SearchPageState extends State<SearchPage> {
               onChanged: (_) => setState(() {}),
             ),
           ),
+          // вкладки: треки / альбомы / исполнители
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: Row(children: [
+              for (final (m, label) in const [
+                (_Mode.tracks, 'Треки'),
+                (_Mode.albums, 'Альбомы'),
+                (_Mode.artists, 'Исполнители'),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(label),
+                    selected: _mode == m,
+                    showCheckmark: false,
+                    onSelected: (_) => _setMode(m),
+                    selectedColor: AppColors.accent,
+                    labelStyle: TextStyle(
+                        color: _mode == m ? Colors.black : AppColors.text, fontWeight: FontWeight.w600),
+                    backgroundColor: AppColors.card,
+                    side: BorderSide.none,
+                    shape: const StadiumBorder(),
+                  ),
+                ),
+            ]),
+          ),
           if (_loading) ...[
             const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator(minHeight: 2)),
-            if (_result != null && _result!.pending.isNotEmpty)
+            if (_pending.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                child: Text('Ещё ищем: ${_result!.pending.join(', ')}',
+                child: Text('Ещё ищем: ${_pending.join(', ')}',
                     style: const TextStyle(fontSize: 12, color: AppColors.textDim)),
               ),
           ],
@@ -157,14 +229,114 @@ class _SearchPageState extends State<SearchPage> {
               action: 'Подключить',
               onAction: _openSettings,
             ),
-          for (final e in (_result?.errors ?? {}).entries)
+          for (final e in _errors.entries)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
               child: Text('${e.key}: ${e.value}', style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
             ),
-          Expanded(child: _result == null ? _GenreGrid(onPick: _search) : _results(noSources)),
+          Expanded(
+            child: !_hasResults && _searched == null
+                ? _GenreGrid(onPick: (q) {
+                    setState(() => _mode = _Mode.tracks);
+                    _search(q);
+                  })
+                : switch (_mode) {
+                    _Mode.tracks => _results(noSources),
+                    _Mode.albums => _albumResults(),
+                    _Mode.artists => _artistResults(),
+                  },
+          ),
         ]),
       ),
+    );
+  }
+
+  Widget _empty(String text) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(text, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textDim)),
+        ),
+      );
+
+  Widget _albumResults() {
+    final items = _albums?.items ?? const <AlbumRef>[];
+    final list = _explicitOnly ? items.where((a) => a.explicit).toList() : items;
+    if (list.isEmpty) {
+      if (_loading) return const SizedBox.shrink();
+      return _empty(_errors.isNotEmpty ? 'Ничего не найдено — площадки ответили ошибкой (см. выше).' : 'Альбомов не найдено.');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      itemCount: list.length,
+      itemBuilder: (context, i) {
+        final a = list[i];
+        return InkWell(
+          onTap: () => openAlbum(context, a),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Row(children: [
+              Cover(a.coverUrl, size: 64, placeholderIcon: Icons.album),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(a.title,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 3),
+                  Row(children: [
+                    if (a.explicit) const ExplicitBadge(),
+                    SourceDot(a.source),
+                    Flexible(
+                      child: Text([a.typeLabel, a.artist, if (a.year != null) '${a.year}'].join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
+                    ),
+                  ]),
+                ]),
+              ),
+              const Icon(Icons.chevron_right, color: AppColors.textDim),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _artistResults() {
+    final list = _artists?.items ?? const <ArtistRef>[];
+    if (list.isEmpty) {
+      if (_loading) return const SizedBox.shrink();
+      return _empty(_errors.isNotEmpty ? 'Ничего не найдено — площадки ответили ошибкой (см. выше).' : 'Исполнителей не найдено.');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 16),
+      itemCount: list.length,
+      itemBuilder: (context, i) {
+        final a = list[i];
+        return InkWell(
+          onTap: () => openArtist(context, a),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Row(children: [
+              Cover(a.imageUrl, size: 64, radius: 32, placeholderIcon: Icons.person),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(a.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 3),
+                  Row(children: [
+                    SourceDot(a.source),
+                    Text('Исполнитель · ${sourceNames[a.source] ?? a.source}',
+                        style: const TextStyle(color: AppColors.textDim, fontSize: 13)),
+                  ]),
+                ]),
+              ),
+              const Icon(Icons.chevron_right, color: AppColors.textDim),
+            ]),
+          ),
+        );
+      },
     );
   }
 

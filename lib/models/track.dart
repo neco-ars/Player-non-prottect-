@@ -34,6 +34,10 @@ class Track {
 
   String get key => '$source:$id';
 
+  /// id альбома и исполнителя на площадке трека (если площадка их дала).
+  String? get albumId => extra['albumId']?.toString();
+  String? get artistId => extra['artistId']?.toString();
+
   /// Видео YouTube играет через официальный плеер, а не через аудиоплеер.
   bool get isVideo => source == 'youtube';
 

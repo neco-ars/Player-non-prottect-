@@ -17,6 +17,21 @@ class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override
   State<HomeShell> createState() => _HomeShellState();
+
+  static _HomeShellState? _instance;
+
+  /// Открыть страницу внутри текущей вкладки (под ней остаются мини-плеер и вкладки).
+  /// Полноэкранный плеер и ролик, если открыты, сворачиваются.
+  static Future<void> push(BuildContext context, Widget page) async {
+    final shell = _instance;
+    final route = MaterialPageRoute<void>(builder: (_) => page);
+    if (shell == null || !shell.mounted) {
+      await Navigator.of(context).push(route);
+      return;
+    }
+    Navigator.of(shell.context, rootNavigator: true).popUntil((r) => r.isFirst);
+    await shell._navKeys[shell._tab].currentState?.push(route);
+  }
 }
 
 class _HomeShellState extends State<HomeShell> {
@@ -30,11 +45,13 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    HomeShell._instance = this;
     _videoSub = app.player.videoRequests.listen(_openVideo);
   }
 
   @override
   void dispose() {
+    if (HomeShell._instance == this) HomeShell._instance = null;
     _videoSub.cancel();
     super.dispose();
   }

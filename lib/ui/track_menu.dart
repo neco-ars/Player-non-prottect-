@@ -5,6 +5,7 @@ import '../models/track.dart';
 import '../services/app_services.dart';
 import '../services/library.dart';
 import '../sources/soundcloud.dart';
+import 'nav.dart';
 import 'widgets.dart';
 
 /// Меню действий с треком. [playlist] — если открыто из плейлиста (тогда есть «Удалить»).
@@ -37,6 +38,22 @@ Future<void> showTrackMenu(BuildContext context, Track t, {Playlist? playlist}) 
             onTap: () {
               close();
               pickPlaylistAndAdd(context, t);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.album),
+            title: const Text('Перейти к альбому'),
+            onTap: () {
+              close();
+              openAlbumOf(context, t);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.person),
+            title: const Text('Перейти к исполнителю'),
+            onTap: () {
+              close();
+              openArtistOf(context, t);
             },
           ),
           ListTile(

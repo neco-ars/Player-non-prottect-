@@ -7,6 +7,7 @@ import '../sources/soundcloud.dart';
 import '../sources/yandex.dart';
 import '../sources/zvuk.dart';
 import '../sources/youtube.dart';
+import 'catalog.dart';
 import 'library.dart';
 import 'player_service.dart';
 import 'recommendations.dart';
@@ -26,9 +27,10 @@ class AppServices {
   final SearchService search;
   final Recommendations recs;
   final PlayerService player;
+  final CatalogService catalog;
 
   AppServices._(this.settings, this.library, this.yandex, this.youtube, this.audius, this.audiomack, this.zvuk, this.local,
-      this.search, this.recs, this.player);
+      this.search, this.recs, this.player, this.catalog);
 
   static Future<AppServices> init() async {
     final settings = await Settings.load();
@@ -46,7 +48,8 @@ class AppServices {
     final player = PlayerService(search, library, recs);
     TrackGroup.preferExplicitDefault(settings.preferExplicit);
     player.findOriginal = settings.findOriginal;
-    return AppServices._(settings, library, yandex, youtube, audius, audiomack, zvuk, local, search, recs, player);
+    return AppServices._(
+        settings, library, yandex, youtube, audius, audiomack, zvuk, local, search, recs, player, CatalogService(search));
   }
 }
 
