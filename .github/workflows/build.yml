@@ -12,9 +12,16 @@ permissions:
   pages: write # публикация веб-версии
   id-token: write
 
+# Новая отправка в ту же ветку отменяет устаревшую сборку, а не ждёт её в очереди.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   web:
     name: Веб-версия (GitHub Pages)
+    # сайт публикуется только из main: GitHub Pages по умолчанию не принимает публикацию из тегов
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
