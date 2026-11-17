@@ -42,6 +42,9 @@ abstract class MusicSource {
   /// Исполнитель по id: популярные треки и дискография.
   Future<ArtistInfo?> artist(String artistId) async => null;
 
+  /// Все треки исполнителя, порциями. [cursor] — значение next из предыдущей порции.
+  Future<TrackPage> artistTracks(String artistId, {Object? cursor}) async => const TrackPage([], null);
+
   Future<List<AlbumRef>> searchAlbums(String query) async => [];
   Future<List<ArtistRef>> searchArtists(String query) async => [];
 }

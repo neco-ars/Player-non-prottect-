@@ -216,6 +216,52 @@ query getStream($ids: [ID!]!) {
     );
   }
 
+  static const _artistReleasesQuery = '''
+query getArtists(\$ids: [ID!]!) {
+  getArtists(ids: \$ids) { releases(offset: 0, limit: 200) { id date } }
+}''';
+
+  static const _releasesTracksQuery = '''
+query getReleases(\$ids: [ID!]!) {
+  getReleases(ids: \$ids) { $_releaseFields tracks { $_trackFields } }
+}''';
+
+  /// Отдельного списка «все треки» у Звука нет — собираем их из всех альбомов и синглов
+  /// исполнителя, от новых к старым, по 8 релизов за порцию.
+  @override
+  Future<TrackPage> artistTracks(String artistId, {Object? cursor}) async {
+    const batch = 8;
+    List<String> ids;
+    int offset;
+    if (cursor is (List<String>, int)) {
+      (ids, offset) = cursor;
+    } else {
+      final data = await _gql('getArtists', _artistReleasesQuery, {
+        'ids': [artistId]
+      });
+      final list = (data['getArtists'] as List?) ?? [];
+      final releases = list.isEmpty ? <Map>[] : (((list.first as Map)['releases'] as List?) ?? []).whereType<Map>().toList();
+      releases.sort((a, b) => '${b['date'] ?? ''}'.compareTo('${a['date'] ?? ''}'));
+      ids = releases.map((r) => '${r['id']}').toList();
+      offset = 0;
+    }
+    if (offset >= ids.length) return const TrackPage([], null);
+    final part = ids.sublist(offset, (offset + batch).clamp(0, ids.length));
+    final data = await _gql('getReleases', _releasesTracksQuery, {'ids': part});
+    final tracks = <Track>[];
+    final seen = <String>{};
+    for (final r in ((data['getReleases'] as List?) ?? []).whereType<Map>()) {
+      for (final t in ((r['tracks'] as List?) ?? []).whereType<Map>()) {
+        // только треки этого исполнителя (в сборниках бывают чужие) и без повторов
+        final artists = ((t['artists'] as List?) ?? []).whereType<Map>().map((a) => '${a['id']}');
+        if (!artists.contains(artistId) || !seen.add('${t['id']}')) continue;
+        tracks.add(_parse(t, fallbackRelease: r));
+      }
+    }
+    final next = offset + batch;
+    return TrackPage(tracks, next < ids.length ? (ids, next) : null);
+  }
+
   @override
   Future<ArtistInfo?> artist(String artistId) async {
     final data = await _gql('getArtists', _artistQuery, {

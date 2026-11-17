@@ -172,6 +172,24 @@ class SoundCloudSource extends MusicSource {
   }
 
   @override
+  Future<TrackPage> artistTracks(String artistId, {Object? cursor}) async {
+    // SoundCloud сам даёт ссылку на следующую порцию (next_href)
+    final http.Response res;
+    if (cursor is String) {
+      // параметры следующей порции (offset и др.) сохраняем, client_id подставит _get
+      final next = Uri.parse(cursor);
+      final params = Map.of(next.queryParameters)..remove('client_id');
+      res = await _get(next.replace(query: '').toString().replaceFirst(RegExp(r'\?$'), ''), params);
+    } else {
+      res = await _get('https://api-v2.soundcloud.com/users/$artistId/tracks',
+          {'limit': '50', 'linked_partitioning': '1'});
+    }
+    if (res.statusCode != 200) throw Exception('SoundCloud: HTTP ${res.statusCode}');
+    final body = jsonDecode(res.body) as Map;
+    return TrackPage(_parseList(res.body), body['next_href'] as String?);
+  }
+
+  @override
   Future<ArtistInfo?> artist(String artistId) async {
     final results = await Future.wait([
       _get('https://api-v2.soundcloud.com/users/$artistId'),

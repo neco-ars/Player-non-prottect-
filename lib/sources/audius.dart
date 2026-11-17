@@ -110,6 +110,15 @@ class AudiusSource extends MusicSource {
   }
 
   @override
+  Future<TrackPage> artistTracks(String artistId, {Object? cursor}) async {
+    const size = 50;
+    final offset = cursor is int ? cursor : 0;
+    final tracks = _parseList(
+        await _get('/users/$artistId/tracks', {'sort': 'date', 'limit': '$size', 'offset': '$offset'}));
+    return TrackPage(tracks, tracks.length < size ? null : offset + size);
+  }
+
+  @override
   Future<ArtistInfo?> artist(String artistId) async {
     final results = await Future.wait([
       _get('/users/$artistId'),

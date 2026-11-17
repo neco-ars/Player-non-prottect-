@@ -51,6 +51,13 @@ class AlbumInfo {
   const AlbumInfo(this.ref, this.tracks, {this.artist});
 }
 
+/// Порция треков при постраничной загрузке. [next] — что передать за следующей порцией (null — всё).
+class TrackPage {
+  final List<Track> tracks;
+  final Object? next;
+  const TrackPage(this.tracks, this.next);
+}
+
 /// Страница исполнителя: популярные треки и дискография.
 class ArtistInfo {
   final ArtistRef ref;

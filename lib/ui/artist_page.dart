@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/track.dart';
 import '../services/app_services.dart';
 import '../sources/source.dart';
 import 'album_page.dart';
@@ -108,6 +109,21 @@ class _ArtistPageState extends State<ArtistPage> {
           ]),
         ),
       ),
+      // все треки исполнителя — отдельным экраном с подгрузкой
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.library_music),
+            label: const Text('Все треки'),
+            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => ArtistTracksPage(artist: a.ref)),
+            ),
+          ),
+        ),
+      ),
       if (top.isNotEmpty) ...[
         const SliverToBoxAdapter(child: SectionTitle('Популярные треки')),
         SliverList.builder(
@@ -172,4 +188,147 @@ class _ArtistPageState extends State<ArtistPage> {
           ),
         ),
       ];
+}
+
+/// Все треки исполнителя (а не только популярные), подгружаются порциями при прокрутке.
+class ArtistTracksPage extends StatefulWidget {
+  final ArtistRef artist;
+  const ArtistTracksPage({super.key, required this.artist});
+
+  @override
+  State<ArtistTracksPage> createState() => _ArtistTracksPageState();
+}
+
+class _ArtistTracksPageState extends State<ArtistTracksPage> {
+  final _tracks = <Track>[];
+  final _keys = <String>{};
+  final _scroll = ScrollController();
+  Object? _next;
+  bool _done = false;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(() {
+      // подгружаем заранее, когда до конца списка осталось ~1.5 экрана
+      if (_scroll.position.extentAfter < 1200) _loadMore();
+    });
+    _loadMore();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadMore() async {
+    if (_loading || _done) return;
+    final source = app.catalog.sourceById(widget.artist.source);
+    if (source == null) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      // пустые порции (например, сборники без треков исполнителя) пропускаем сразу
+      var page = await source.artistTracks(widget.artist.id, cursor: _next).timeout(const Duration(seconds: 20));
+      var guard = 0;
+      while (page.tracks.isEmpty && page.next != null && guard++ < 5) {
+        page = await source.artistTracks(widget.artist.id, cursor: page.next).timeout(const Duration(seconds: 20));
+      }
+      if (!mounted) return;
+      setState(() {
+        for (final t in page.tracks) {
+          if (_keys.add(t.key)) _tracks.add(t);
+        }
+        _next = page.next;
+        _done = page.next == null;
+        _loading = false;
+      });
+      // если список короткий и экран не заполнен — догружаем ещё
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_done && _scroll.hasClients && _scroll.position.maxScrollExtent < 400) _loadMore();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e'.replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.artist.name, maxLines: 1, overflow: TextOverflow.ellipsis)),
+      body: ListenableBuilder(
+        listenable: app.player,
+        builder: (context, _) => ListView.builder(
+          controller: _scroll,
+          padding: const EdgeInsets.only(bottom: 24),
+          itemCount: _tracks.length + 2,
+          itemBuilder: (context, i) {
+            if (i == 0) return _header();
+            if (i == _tracks.length + 1) return _footer();
+            final t = _tracks[i - 1];
+            return TrackTile(
+              track: t,
+              number: i,
+              playing: app.player.current == t,
+              onTap: () => app.player.playQueue(_tracks, i - 1),
+              onMenu: () => showTrackMenu(context, t),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _header() => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        child: Row(children: [
+          SourceDot(widget.artist.source),
+          Expanded(
+            child: Text(
+              _done ? 'Все треки: ${_tracks.length}' : 'Загружено: ${_tracks.length}…',
+              style: const TextStyle(color: AppColors.textDim),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Вперемешку',
+            icon: const Icon(Icons.shuffle, color: AppColors.textDim),
+            onPressed: _tracks.isEmpty ? null : () => app.player.playQueue(_tracks, 0, shuffled: true),
+          ),
+          PlayButton(onPressed: () => _tracks.isEmpty ? null : app.player.playQueue(_tracks, 0)),
+        ]),
+      );
+
+  Widget _footer() {
+    if (_error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(children: [
+          Text('Не удалось загрузить: $_error',
+              textAlign: TextAlign.center, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          const SizedBox(height: 8),
+          OutlinedButton(onPressed: _loadMore, child: const Text('Повторить')),
+        ]),
+      );
+    }
+    if (_loading) {
+      return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
+    }
+    if (_done && _tracks.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(32),
+        child: Text('У исполнителя на этой площадке нет треков.',
+            textAlign: TextAlign.center, style: TextStyle(color: AppColors.textDim)),
+      );
+    }
+    return const SizedBox(height: 24);
+  }
 }

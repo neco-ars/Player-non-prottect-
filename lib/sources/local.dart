@@ -109,6 +109,10 @@ class LocalSource extends MusicSource with ChangeNotifier {
   }
 
   @override
+  Future<TrackPage> artistTracks(String artistId, {Object? cursor}) async =>
+      TrackPage(_entries.where((e) => e.artist == artistId).map(_toTrack).toList(), null);
+
+  @override
   Future<List<AlbumRef>> searchAlbums(String query) async {
     final q = Track.normalize(query);
     if (q.isEmpty) return [];

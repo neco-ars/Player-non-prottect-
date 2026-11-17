@@ -117,6 +117,16 @@ class YandexSource extends MusicSource {
   }
 
   @override
+  Future<TrackPage> artistTracks(String artistId, {Object? cursor}) async {
+    const size = 50;
+    final page = cursor is int ? cursor : 0;
+    final r = await _get('/artists/$artistId/tracks', {'page': '$page', 'page-size': '$size'}) as Map?;
+    final tracks = _parseList(r?['tracks'] as List?);
+    final total = ((r?['pager'] as Map?)?['total'] as num?)?.toInt() ?? 0;
+    return TrackPage(tracks, (page + 1) * size < total && tracks.isNotEmpty ? page + 1 : null);
+  }
+
+  @override
   Future<ArtistInfo?> artist(String artistId) async {
     final r = await _get('/artists/$artistId/brief-info') as Map?;
     if (r == null || r['artist'] == null) return null;
