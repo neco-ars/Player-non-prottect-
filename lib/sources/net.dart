@@ -34,6 +34,11 @@ class Net {
   /// Понятный текст сетевой ошибки для пользователя.
   static String describe(Object e) {
     final s = '$e';
+    // в браузере так выглядит отказ прокси (старая версия worker.js или чужой адрес сайта)
+    if (kIsWeb && s.contains('Failed to fetch')) {
+      return 'прокси не пропустил запрос — обнови worker.js на Cloudflare (см. proxy/README.md) '
+          'и открывай сайт по адресу из ALLOWED_ORIGIN';
+    }
     if (s.contains('Handshake')) return 'не удалось установить защищённое соединение (сеть или провайдер обрывает его)';
     if (s.contains('SocketException') || s.contains('Failed host lookup')) return 'нет соединения с сервером';
     if (e is TimeoutException) return 'сервер не ответил вовремя';
