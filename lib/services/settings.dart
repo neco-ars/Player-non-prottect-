@@ -9,9 +9,6 @@ class Settings {
   String? _str(String k) => _prefs.getString(k);
   void _setStr(String k, String? v) => v == null || v.isEmpty ? _prefs.remove(k) : _prefs.setString(k, v);
 
-  String? get yandexToken => _str('yandex_token');
-  set yandexToken(String? v) => _setStr('yandex_token', v);
-
   String? get youtubeKey => _str('youtube_key');
   set youtubeKey(String? v) => _setStr('youtube_key', v);
 

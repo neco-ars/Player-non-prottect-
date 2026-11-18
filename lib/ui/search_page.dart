@@ -145,8 +145,7 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     final missing = [
-      if (Net.proxyMissing) 'прокси (без него Яндекс и SoundCloud в браузере не работают)',
-      if (!app.yandex.isConfigured && !Net.proxyMissing) 'Яндекс Музыка',
+      if (Net.proxyMissing) 'прокси (без него Звук и SoundCloud в браузере не работают)',
       if (!app.youtube.isConfigured) 'YouTube',
     ];
     final noSources = !app.search.sources.any((s) => s.isConfigured);

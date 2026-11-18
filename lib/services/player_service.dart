@@ -306,7 +306,6 @@ class PlayerService extends ChangeNotifier {
   Future<void> dislike(Track t) async {
     library.dislike(t);
     recs.invalidate();
-    unawaited(_yandexDislike(t, remove: false));
     if (radio && _index >= 0) {
       final kept = _queue.take(_index + 1).toList();
       final rest = _queue.skip(_index + 1).where(library.allowedInRecs);
@@ -323,15 +322,6 @@ class PlayerService extends ChangeNotifier {
   void undislike(Track t) {
     library.undislike(t);
     recs.invalidate();
-    unawaited(_yandexDislike(t, remove: true));
-  }
-
-  Future<void> _yandexDislike(Track t, {required bool remove}) async {
-    try {
-      await recs.yandex.setDislike(t, remove: remove);
-    } catch (e) {
-      debugPrint('$e');
-    }
   }
 
   /// Свайп вправо: сразу предыдущий трек (а не перемотка в начало, как у кнопки ⏮).

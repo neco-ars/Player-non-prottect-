@@ -14,7 +14,7 @@ class CatalogService {
   CatalogService(this.search);
 
   /// Площадки с альбомами, в порядке предпочтения для запасного поиска.
-  static const _preferred = ['zvuk', 'yandex', 'soundcloud', 'local'];
+  static const _preferred = ['zvuk', 'soundcloud', 'local'];
 
   List<MusicSource> get _catalogSources {
     final list = search.sources.where((s) => s.hasCatalog && s.isConfigured).toList();

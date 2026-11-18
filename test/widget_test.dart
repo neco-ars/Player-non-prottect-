@@ -15,7 +15,7 @@ import 'package:music_player/sources/zvuk.dart';
 
 void main() {
   test('версии одной песни с разных площадок объединяются', () {
-    const a = Track(source: 'yandex', id: '1', title: 'Song (feat. X) [Explicit]', artist: 'Artist');
+    const a = Track(source: 'zvuk', id: '1', title: 'Song (feat. X) [Explicit]', artist: 'Artist');
     const b = Track(source: 'soundcloud', id: '2', title: 'song - Dirty', artist: 'ARTIST');
     const c = Track(source: 'youtube', id: 'x', title: 'Song (Official Video)', artist: 'Artist');
     expect(a.matchKey, b.matchKey);
@@ -41,7 +41,7 @@ void main() {
   });
 
   test('по умолчанию играет версия без цензуры, превью и видео — в последнюю очередь', () {
-    const clean = Track(source: 'yandex', id: '1', title: 'Song', artist: 'A');
+    const clean = Track(source: 'zvuk', id: '1', title: 'Song', artist: 'A');
     const dirty = Track(source: 'soundcloud', id: '2', title: 'Song', artist: 'A', explicit: true);
     const video = Track(source: 'youtube', id: '3', title: 'Song', artist: 'A', explicit: true);
     const preview = Track(source: 'soundcloud', id: '4', title: 'Song', artist: 'A', explicit: true, previewOnly: true);
@@ -76,7 +76,7 @@ void main() {
 
   test('сетевые сбои распознаются как временные', () {
     expect(Net.isTransient(Exception('HandshakeException: Connection terminated during handshake')), true);
-    expect(Net.isTransient(Exception('Яндекс: токен недействителен')), false);
+    expect(Net.isTransient(Exception('Звук: токен не подошёл')), false);
     expect(Net.describe(Exception('HandshakeException: Connection terminated during handshake')),
         contains('защищённое соединение'));
   });

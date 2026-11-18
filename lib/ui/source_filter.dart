@@ -5,7 +5,7 @@ import '../services/app_services.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
-/// Ряд кнопок «Все · Яндекс · Звук · SoundCloud · …» — показать только одну площадку.
+/// Ряд кнопок «Все · Звук · SoundCloud · …» — показать только одну площадку.
 /// [value] == null — все площадки. Показываются только подключённые площадки.
 class SourceFilterBar extends StatelessWidget {
   final String? value;

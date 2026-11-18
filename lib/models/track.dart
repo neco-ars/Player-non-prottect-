@@ -1,6 +1,6 @@
 /// Один трек из одного источника.
 class Track {
-  final String source; // id источника: 'yandex', 'soundcloud', 'youtube'
+  final String source; // id источника: 'zvuk', 'soundcloud', 'youtube', 'audiomack', 'local'
   final String id;
   final String title;
   final String artist;

@@ -1,6 +1,6 @@
 // Прокси для веб-версии Music Player (Cloudflare Workers).
 //
-// Браузер не даёт сайту напрямую обращаться к API Яндекс Музыки и SoundCloud (CORS).
+// Браузер не даёт сайту напрямую обращаться к API Звука, SoundCloud и других площадок (CORS).
 // Этот воркер пересылает ТОЛЬКО поисковые/служебные запросы к этим двум сервисам
 // и ТОЛЬКО с адреса твоего сайта. Сама музыка идёт напрямую, мимо прокси.
 //
@@ -8,9 +8,6 @@
 // (без пути и без слеша на конце). Если не задана — прокси отвечает всем (не рекомендуется).
 
 const ALLOWED_HOSTS = [
-  /^api\.music\.yandex\.net$/,
-  /^[a-z0-9-]+\.music\.yandex\.net$/, // download-info
-  /^[a-z0-9-]+\.mds\.yandex\.net$/, // download-info (хранилище)
   /^soundcloud\.com$/,
   /^api-v2\.soundcloud\.com$/,
   /^a-v2\.sndcdn\.com$/, // скрипты сайта, оттуда берётся client_id
@@ -20,7 +17,7 @@ const ALLOWED_HOSTS = [
 ];
 
 // Какие заголовки клиента пересылаем дальше.
-const FORWARD_HEADERS = ['authorization', 'x-yandex-music-client', 'x-auth-token', 'accept', 'accept-language', 'content-type'];
+const FORWARD_HEADERS = ['authorization', 'x-auth-token', 'accept', 'accept-language', 'content-type'];
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
@@ -36,7 +33,7 @@ export default {
     const cors = {
       'Access-Control-Allow-Origin': allowed || '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Authorization, X-Yandex-Music-Client, X-Auth-Token, Accept, Content-Type',
+      'Access-Control-Allow-Headers': 'Authorization, X-Auth-Token, Accept, Content-Type',
       // ничего не кэшируем: ответы зависят от токенов пользователя
       'Access-Control-Max-Age': '86400',
       Vary: 'Origin',
@@ -63,10 +60,7 @@ export default {
       const v = request.headers.get(h);
       if (v) headers.set(h, v);
     }
-    headers.set(
-      'User-Agent',
-      target.hostname.endsWith('yandex.net') ? 'Yandex-Music-API' : BROWSER_UA,
-    );
+    headers.set('User-Agent', BROWSER_UA);
     if (target.hostname === 'zvuk.com') {
       headers.set('Referer', 'https://zvuk.com/');
       headers.set('Origin', 'https://zvuk.com');

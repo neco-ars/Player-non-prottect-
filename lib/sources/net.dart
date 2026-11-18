@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/retry.dart';
 
-/// В браузере сайты не могут напрямую обращаться к API Яндекса и SoundCloud (CORS).
+/// В браузере сайты не могут напрямую обращаться к API Звука и SoundCloud (CORS).
 /// Поэтому веб-версия ходит через свой прокси на Cloudflare Workers (папка proxy/).
 /// В приложениях для Android/iOS/Windows запросы идут напрямую.
 class Net {

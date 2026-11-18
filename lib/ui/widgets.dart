@@ -8,13 +8,12 @@ import 'theme.dart';
 
 const sourceColors = {
   'local': Color(0xFF2EC4B6),
-  'yandex': Color(0xFFFFCC00),
   'soundcloud': Color(0xFFFF5500),
   'audiomack': Color(0xFFFFA200),
   'zvuk': Color(0xFF3D6BFF),
   'youtube': Color(0xFFFF0033),
 };
-const sourceNames = {'local': 'Мои файлы', 'yandex': 'Яндекс', 'soundcloud': 'SoundCloud', 'audiomack': 'Audiomack', 'zvuk': 'Звук', 'youtube': 'YouTube'};
+const sourceNames = {'local': 'Мои файлы', 'soundcloud': 'SoundCloud', 'audiomack': 'Audiomack', 'zvuk': 'Звук', 'youtube': 'YouTube'};
 
 String fmtDuration(Duration? d) {
   if (d == null || d == Duration.zero) return '';

@@ -295,5 +295,5 @@ class _NoPlayableStream implements Exception {
   const _NoPlayableStream(this.formats);
   @override
   String toString() => 'SoundCloud закрыл этот трек защитой (DRM) — он играет только в их приложении. '
-      'Войди в Яндекс или Звук в настройках: если песня есть там, плеер возьмёт её оттуда';
+      'Войди в Звук в настройках: если песня есть там, плеер возьмёт её оттуда';
 }

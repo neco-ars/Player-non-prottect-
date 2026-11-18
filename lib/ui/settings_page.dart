@@ -5,7 +5,6 @@ import '../models/track.dart';
 import '../services/app_services.dart';
 import '../services/keys.dart';
 import '../sources/net.dart';
-import '../sources/yandex.dart';
 import '../version.dart';
 import 'equalizer_page.dart';
 import 'login_page.dart';
@@ -17,7 +16,6 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  late final _token = TextEditingController(text: app.settings.yandexToken ?? '');
   late final _ytKey = TextEditingController(text: app.settings.youtubeKey ?? '');
   late final _proxy = TextEditingController(text: app.settings.proxyUrl ?? '');
   late final _genius = TextEditingController(text: app.settings.geniusToken ?? '');
@@ -26,18 +24,6 @@ class _SettingsPageState extends State<SettingsPage> {
   late final _amSecret = TextEditingController(text: app.settings.audiomackSecret ?? '');
 
   void _toast(String s) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
-
-  void _saveYandex() {
-    // можно вставить как сам токен, так и всю ссылку из адресной строки
-    var v = _token.text.trim();
-    final m = RegExp(r'access_token=([^&]+)').firstMatch(v);
-    if (m != null) v = m.group(1)!;
-    _token.text = v;
-    app.settings.yandexToken = v;
-    app.yandex.token = v.isEmpty ? null : v;
-    _toast(v.isEmpty ? 'Яндекс отключён' : 'Яндекс подключён');
-    setState(() {});
-  }
 
   void _saveYouTube() {
     final v = _ytKey.text.trim();
@@ -95,53 +81,6 @@ class _SettingsPageState extends State<SettingsPage> {
             app.player.findOriginal = v;
           }),
         ),
-        const Divider(height: 40),
-        Row(children: [Expanded(child: Text('Яндекс Музыка', style: h)), _status(app.yandex.isConfigured)]),
-        const SizedBox(height: 8),
-        Text(
-          inAppLoginSupported
-              ? 'Нажми «Войти в Яндекс» и войди в свой аккаунт — больше ничего делать не нужно.\n\n'
-                  'Полные треки и «Моя волна» доступны с подпиской Яндекс Плюс. Вход хранится только на этом устройстве.'
-              : '1. Нажми «Войти в Яндекс» и войди в свой аккаунт.\n'
-                  '2. После входа браузер откроет пустую страницу. Скопируй весь адрес из адресной строки.\n'
-                  '3. Вставь его сюда и нажми «Сохранить».\n\n'
-                  'Полные треки и «Моя волна» доступны с подпиской Яндекс Плюс. Токен хранится только на этом устройстве.',
-        ),
-        const SizedBox(height: 12),
-        FilledButton.icon(
-          icon: const Icon(Icons.login),
-          label: Text(app.yandex.isConfigured ? 'Войти заново' : 'Войти в Яндекс'),
-          onPressed: () async {
-            if (!inAppLoginSupported) {
-              await launchUrl(YandexSource.authUrl, mode: LaunchMode.externalApplication);
-              return;
-            }
-            final token = await loginYandex(context);
-            if (token != null && mounted) {
-              _token.text = token;
-              _saveYandex();
-            }
-          },
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _token,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'Токен или ссылка после входа', border: OutlineInputBorder()),
-        ),
-        const SizedBox(height: 8),
-        Row(children: [
-          FilledButton(onPressed: _saveYandex, child: const Text('Сохранить')),
-          const SizedBox(width: 8),
-          if (app.yandex.isConfigured)
-            TextButton(
-              onPressed: () {
-                _token.clear();
-                _saveYandex();
-              },
-              child: const Text('Выйти'),
-            ),
-        ]),
         const Divider(height: 40),
         Row(children: [Expanded(child: Text('Звук', style: h)), _status(app.zvuk.isConfigured)]),
         const SizedBox(height: 8),
@@ -249,7 +188,7 @@ class _SettingsPageState extends State<SettingsPage> {
               const Divider(height: 40),
               Row(children: [Expanded(child: Text('Прокси (веб-версия)', style: h)), _status(Net.proxy.isNotEmpty)]),
               const SizedBox(height: 8),
-              const Text('Браузер не пускает сайт напрямую в Яндекс и SoundCloud, поэтому запросы идут через прокси '
+              const Text('Браузер не пускает сайт напрямую в Звук и SoundCloud, поэтому запросы идут через прокси '
                   'на Cloudflare Workers. Обычно адрес уже вшит в сборку — поле нужно, только если его поменяли.'),
               const SizedBox(height: 12),
               TextField(

@@ -1,5 +1,4 @@
 import '../models/track.dart';
-import '../sources/yandex.dart';
 import 'catalog.dart';
 import 'library.dart';
 import 'search_service.dart';
@@ -11,21 +10,20 @@ class RecSection {
   RecSection(this.title, this.tracks, {this.subtitle});
 }
 
-/// Рекомендации: «Моя волна» Яндекса и похожие треки от площадок,
+/// Рекомендации: похожие треки от площадок,
 /// подобранные по истории прослушиваний.
 class Recommendations {
   final SearchService search;
   final Library library;
-  final YandexSource yandex;
   final CatalogService catalog;
-  Recommendations(this.search, this.library, this.yandex, this.catalog);
+  Recommendations(this.search, this.library, this.catalog);
 
   /// Похожие на трек по версии площадок. Если площадка трека не умеет (Звук, YouTube, Audiomack),
-  /// находим ту же песню там, где умеют (Яндекс, SoundCloud), и берём похожие оттуда.
+  /// находим ту же песню там, где умеют (SoundCloud), и берём похожие оттуда.
   Future<List<Track>> similar(Track t) async {
     final own = await _safe(() => search.sourceOf(t).similar(t));
     if (own.isNotEmpty) return own;
-    for (final s in search.sources.where((s) => s.isConfigured && s.id != t.source && (s.id == 'yandex' || s.id == 'soundcloud'))) {
+    for (final s in search.sources.where((s) => s.isConfigured && s.id != t.source && s.id == 'soundcloud')) {
       final found = await _safe(() => s.search('${t.artist} ${t.title}'));
       // только та же песня: «первый попавшийся» результат давал радио по чужой музыке
       final match = found.where((f) => f.matchKey == t.matchKey).firstOrNull;
@@ -108,11 +106,6 @@ class Recommendations {
     final sections = <RecSection>[];
     final futures = <Future<void>>[];
 
-    if (yandex.isConfigured) {
-      futures.add(_safe(yandex.myWave).then((w) {
-        if (w.isNotEmpty) sections.add(RecSection('Моя волна', w, subtitle: 'Яндекс Музыка'));
-      }));
-    }
 
     // по трём последним разным исполнителям из истории
     final seeds = <Track>[];
@@ -129,10 +122,8 @@ class Recommendations {
     }
     await Future.wait(futures);
 
-    // порядок: волна, потом в порядке свежести истории
+    // порядок: по свежести истории
     sections.sort((a, b) {
-      if (a.title == 'Моя волна') return -1;
-      if (b.title == 'Моя волна') return 1;
       final ia = seeds.indexWhere((s) => a.subtitle == s.artist);
       final ib = seeds.indexWhere((s) => b.subtitle == s.artist);
       return ia.compareTo(ib);

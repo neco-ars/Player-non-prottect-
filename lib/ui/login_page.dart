@@ -4,29 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../platform.dart';
-import '../sources/yandex.dart';
 import 'theme.dart';
 
 /// Встроенный вход есть только на телефоне (Android, iPhone): на Windows и в браузере
 /// встроенной страницы входа нет — там вход через браузер и вставку токена.
 bool get inAppLoginSupported => isMobile;
-
-/// Вход в Яндекс: страница входа Яндекса прямо в приложении.
-/// После входа Яндекс перенаправляет на адрес с access_token — забираем его сами.
-Future<String?> loginYandex(BuildContext context) => Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => _LoginPage(
-          title: 'Вход в Яндекс',
-          start: YandexSource.authUrl,
-          hint: 'Войди в свой аккаунт Яндекса — токен подхватится сам.',
-          onUrl: (url) {
-            final m = RegExp(r'access_token=([^&]+)').firstMatch(url);
-            return m?.group(1);
-          },
-        ),
-      ),
-    );
 
 /// Вход в Звук: обычная страница входа zvuk.com. Когда вошёл — нажимаешь «Готово»,
 /// приложение открывает страницу профиля и берёт из неё токен.
