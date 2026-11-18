@@ -76,6 +76,7 @@ class Library extends ChangeNotifier {
         final j = jsonDecode(raw) as Map<String, dynamic>;
         lib.playlists.addAll((j['playlists'] as List? ?? []).map((p) => Playlist.fromJson(Map<String, dynamic>.from(p))));
         lib.history.addAll((j['history'] as List? ?? []).map((t) => Track.fromJson(Map<String, dynamic>.from(t))));
+        lib.disliked.addAll((j['disliked'] as List? ?? []).map((t) => Track.fromJson(Map<String, dynamic>.from(t))));
       }
     } catch (e) {
       debugPrint('library.json повреждён, начинаем заново: $e');
@@ -90,7 +91,12 @@ class Library extends ChangeNotifier {
   bool isLiked(Track t) => liked.tracks.contains(t);
 
   void toggleLike(Track t) {
-    isLiked(t) ? liked.tracks.remove(t) : liked.tracks.insert(0, t);
+    if (isLiked(t)) {
+      liked.tracks.remove(t);
+    } else {
+      liked.tracks.insert(0, t);
+      disliked.removeWhere((d) => d.matchKey == t.matchKey); // нравится — значит, больше не скрываем
+    }
     _changed();
   }
 
@@ -131,6 +137,40 @@ class Library extends ChangeNotifier {
     _changed();
   }
 
+  // ---------- «Не нравится» ----------
+  // Песня с дизлайком и её исполнитель не попадают в «Мою волну», радио и подборки.
+  // В обычном поиске и на странице исполнителя они остаются — найти сам можно всегда.
+
+  /// Треки с дизлайком (свежие в начале) — для списка «Скрытое» в настройках.
+  final List<Track> disliked = [];
+
+  static String artistKey(String artist) =>
+      Track.normalize(artist.split(RegExp(r',|&| feat\.? | ft\.? | x ', caseSensitive: false)).first);
+
+  Set<String> get _dislikedSongs => {for (final t in disliked) t.matchKey};
+  Set<String> get dislikedArtists => {for (final t in disliked) artistKey(t.artist)};
+
+  bool isDisliked(Track t) => _dislikedSongs.contains(t.matchKey);
+
+  /// Можно ли предлагать трек в рекомендациях и радио.
+  bool allowedInRecs(Track t) {
+    if (_dislikedSongs.contains(t.matchKey)) return false;
+    final a = artistKey(t.artist);
+    return a.isEmpty || !dislikedArtists.contains(a);
+  }
+
+  void dislike(Track t) {
+    if (isDisliked(t)) return;
+    disliked.insert(0, t);
+    if (isLiked(t)) liked.tracks.remove(t); // не нравится — значит, и не в «Любимом»
+    _changed();
+  }
+
+  void undislike(Track t) {
+    disliked.removeWhere((d) => d.matchKey == t.matchKey);
+    _changed();
+  }
+
   void addHistory(Track t) {
     history.remove(t);
     history.insert(0, t);
@@ -150,6 +190,7 @@ class Library extends ChangeNotifier {
       'version': 1,
       'playlists': playlists.map((p) => p.toJson()).toList(),
       'history': history.map((t) => t.toJson()).toList(),
+      'disliked': disliked.map((t) => t.toJson()).toList(),
     });
     await _store.write(data);
   }

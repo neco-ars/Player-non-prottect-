@@ -152,6 +152,23 @@ class YandexSource extends MusicSource {
     return _parseList((r as Map?)?['similarTracks']);
   }
 
+  String? _uid;
+
+  /// «Не нравится» в самом Яндексе — тогда и «Моя волна» на их стороне учтёт это.
+  /// [remove] — снять дизлайк.
+  Future<void> setDislike(Track t, {bool remove = false}) async {
+    if (t.source != id || !isConfigured) return;
+    _uid ??= '${(((await _get('/account/status')) as Map?)?['account'] as Map?)?['uid'] ?? ''}';
+    if (_uid!.isEmpty) return;
+    final trackId = t.albumId == null ? t.id : '${t.id}:${t.albumId}';
+    final res = await Net.client.post(
+      Net.wrap(Uri.https(_api, '/users/$_uid/dislikes/tracks/${remove ? 'remove' : 'add-multiple'}')),
+      headers: {..._headers, 'Content-Type': 'application/x-www-form-urlencoded'},
+      body: {'track-ids': trackId},
+    );
+    if (res.statusCode != 200) throw Exception('Яндекс: дизлайк не принят (HTTP ${res.statusCode})');
+  }
+
   /// «Моя волна» — персональный поток рекомендаций Яндекса.
   Future<List<Track>> myWave() async {
     final r = await _get('/rotor/station/user:onyourwave/tracks', {'settings2': 'true'});

@@ -301,6 +301,39 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> toggleMute() => setVolume(muted ? (_beforeMute > 0 ? _beforeMute : 0.5) : 0);
 
+  /// «Не нравится»: скрыть песню и её исполнителя из рекомендаций и радио,
+  /// убрать их из оставшейся очереди радио и, если это играющий трек, — переключить дальше.
+  Future<void> dislike(Track t) async {
+    library.dislike(t);
+    recs.invalidate();
+    unawaited(_yandexDislike(t, remove: false));
+    if (radio && _index >= 0) {
+      final kept = _queue.take(_index + 1).toList();
+      final rest = _queue.skip(_index + 1).where(library.allowedInRecs);
+      _queue = [...kept, ...rest];
+      _dropPreload();
+    }
+    if (current == t) {
+      await next();
+    } else {
+      notifyListeners();
+    }
+  }
+
+  void undislike(Track t) {
+    library.undislike(t);
+    recs.invalidate();
+    unawaited(_yandexDislike(t, remove: true));
+  }
+
+  Future<void> _yandexDislike(Track t, {required bool remove}) async {
+    try {
+      await recs.yandex.setDislike(t, remove: remove);
+    } catch (e) {
+      debugPrint('$e');
+    }
+  }
+
   /// Свайп вправо: сразу предыдущий трек (а не перемотка в начало, как у кнопки ⏮).
   Future<void> previousTrack() async {
     if (hasPrev) {

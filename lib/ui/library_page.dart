@@ -68,6 +68,18 @@ class LibraryPage extends StatelessWidget {
             subtitle: _tracksWord(lib.history.length),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryPage())),
           ),
+          if (lib.disliked.isNotEmpty)
+            _LibraryRow(
+              leading: Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(4)),
+                child: const Icon(Icons.thumb_down_outlined, color: AppColors.textDim, size: 28),
+              ),
+              title: 'Скрытое',
+              subtitle: 'Не нравится · ${_tracksWord(lib.disliked.length)}',
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HiddenPage())),
+            ),
         ]),
       ),
     );
@@ -401,4 +413,41 @@ class HistoryPage extends StatelessWidget {
       ),
     );
   }
+}
+
+/// «Скрытое»: песни с «Не нравится». Их исполнители тоже не попадают в волну и радио.
+class HiddenPage extends StatelessWidget {
+  const HiddenPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Скрытое')),
+        body: ListenableBuilder(
+          listenable: app.library,
+          builder: (context, _) {
+            final list = app.library.disliked;
+            if (list.isEmpty) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Text('Пусто. Нажми 👎 «Не нравится» в плеере — песня и её исполнитель пропадут из волны и радио.',
+                      textAlign: TextAlign.center, style: TextStyle(color: AppColors.textDim)),
+                ),
+              );
+            }
+            return ListView(children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Text('Эти песни и их исполнители не попадают в «Мою волну», радио и подборки. '
+                    'В поиске их по-прежнему можно найти.', style: TextStyle(color: AppColors.textDim)),
+              ),
+              for (final t in list)
+                TrackTile(
+                  track: t,
+                  onTap: () => app.player.playQueue([t], 0),
+                  trailing: TextButton(onPressed: () => app.player.undislike(t), child: const Text('Вернуть')),
+                ),
+            ]);
+          },
+        ),
+      );
 }

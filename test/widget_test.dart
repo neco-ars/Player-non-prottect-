@@ -4,6 +4,7 @@ import 'package:music_player/models/track.dart';
 import 'package:music_player/services/catalog.dart';
 import 'package:music_player/services/equalizer.dart';
 import 'package:music_player/services/keys.dart';
+import 'package:music_player/services/library.dart';
 import 'package:music_player/services/lyrics.dart';
 import 'package:music_player/sources/audiomack.dart';
 import 'package:music_player/sources/net.dart';
@@ -108,6 +109,11 @@ void main() {
     final (artists, title) = CatalogService.matchKeys(sc);
     expect(CatalogService.sameSong(zvuk, artists, title), true);
     expect(CatalogService.sameSong(other, artists, title), false);
+  });
+
+  test('«не нравится» по исполнителю: соавторы не мешают узнать того же исполнителя', () {
+    expect(Library.artistKey('LAZZY2WICE, Kai Angel'), Library.artistKey('lazzy2wice'));
+    expect(Library.artistKey('LAZZY2WICE feat. X'), 'lazzy2wice');
   });
 
   test('свой ключ из настроек важнее встроенного', () {

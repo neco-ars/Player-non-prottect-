@@ -169,7 +169,9 @@ class _Carousel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tracks = section.tracks;
+    // «не нравится» пропадает сразу, не дожидаясь обновления главной
+    final tracks = section.tracks.where(app.library.allowedInRecs).toList();
+    if (tracks.isEmpty) return const SizedBox.shrink();
     final isRadio = section.title != 'Недавно слушал';
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       SectionTitle(

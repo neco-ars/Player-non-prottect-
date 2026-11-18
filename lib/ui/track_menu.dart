@@ -33,6 +33,15 @@ Future<void> showTrackMenu(BuildContext context, Track t, {Playlist? playlist}) 
             },
           ),
           ListTile(
+            leading: Icon(lib.isDisliked(t) ? Icons.thumb_down : Icons.thumb_down_outlined),
+            title: Text(lib.isDisliked(t) ? 'Снова показывать в рекомендациях' : 'Не нравится'),
+            subtitle: lib.isDisliked(t) ? null : const Text('Убрать песню и исполнителя из волны и радио'),
+            onTap: () {
+              close();
+              lib.isDisliked(t) ? app.player.undislike(t) : app.player.dislike(t);
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.playlist_add),
             title: const Text('Добавить в плейлист'),
             onTap: () {

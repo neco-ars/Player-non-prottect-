@@ -68,8 +68,8 @@ class Recommendations {
     final seen = <String>{...exclude, seed.key, seed.matchKey};
     return [
       for (final t in mix)
-        // без превью и видео — радио должно играть само, без экрана
-        if (!t.previewOnly && !t.isVideo && seen.add(t.key) && seen.add(t.matchKey)) t
+        // без превью и видео — радио должно играть само, без экрана; без того, что «не нравится»
+        if (!t.previewOnly && !t.isVideo && library.allowedInRecs(t) && seen.add(t.key) && seen.add(t.matchKey)) t
     ];
   }
 
@@ -101,11 +101,19 @@ class Recommendations {
 
   /// Подборки для главной. Результат держим 20 минут, чтобы не скачивать всё заново
   /// при каждом открытии; [force] — обновить (кнопка и «потянуть вниз»).
+  /// Сбросить подборки главной (например, после «Не нравится»).
+  void invalidate() => _cache = null;
+
   Future<List<RecSection>> forYou({bool force = false}) async {
     if (!force && _cache != null && DateTime.now().difference(_cacheAt!) < const Duration(minutes: 20)) {
       return _cache!;
     }
-    final result = await _buildForYou();
+    final result = [
+      // убираем то, что «не нравится» (и его исполнителей); пустые подборки — тоже
+      for (final s in await _buildForYou())
+        if (s.tracks.where(library.allowedInRecs).isNotEmpty)
+          RecSection(s.title, s.tracks.where(library.allowedInRecs).toList(), subtitle: s.subtitle),
+    ];
     _cache = result;
     _cacheAt = DateTime.now();
     return result;

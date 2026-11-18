@@ -146,6 +146,19 @@ class NowPlayingPage extends StatelessWidget {
                           ]),
                         ]),
                       ),
+                      // «Не нравится»: песня и исполнитель уйдут из волны, радио и подборок
+                      IconButton(
+                        iconSize: 26,
+                        tooltip: 'Не нравится',
+                        icon: const Icon(Icons.thumb_down_outlined, color: AppColors.textDim),
+                        onPressed: () {
+                          p.dislike(t);
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text('«${t.title}» и ${t.artist} больше не попадутся в волне и радио'),
+                            action: SnackBarAction(label: 'Отменить', onPressed: () => p.undislike(t)),
+                          ));
+                        },
+                      ),
                       IconButton(
                         iconSize: 28,
                         icon: Icon(liked ? Icons.favorite : Icons.favorite_border,
