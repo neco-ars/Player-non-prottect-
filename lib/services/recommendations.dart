@@ -1,6 +1,7 @@
 import '../models/track.dart';
 import '../sources/audius.dart';
 import '../sources/yandex.dart';
+import 'catalog.dart';
 import 'library.dart';
 import 'search_service.dart';
 
@@ -18,35 +19,81 @@ class Recommendations {
   final Library library;
   final YandexSource yandex;
   final AudiusSource audius;
-  Recommendations(this.search, this.library, this.yandex, this.audius);
+  final CatalogService catalog;
+  Recommendations(this.search, this.library, this.yandex, this.audius, this.catalog);
 
-  /// Похожие на трек. Если площадка трека не умеет (YouTube),
-  /// находим ту же песню там, где умеют, и берём похожие оттуда.
+  /// Похожие на трек по версии площадок. Если площадка трека не умеет (Звук, Audius, YouTube),
+  /// находим ту же песню там, где умеют (Яндекс, SoundCloud), и берём похожие оттуда.
   Future<List<Track>> similar(Track t) async {
     final own = await _safe(() => search.sourceOf(t).similar(t));
     if (own.isNotEmpty) return own;
-    // площадки, которые умеют «похожие»
     for (final s in search.sources.where((s) => s.isConfigured && s.id != t.source && (s.id == 'yandex' || s.id == 'soundcloud'))) {
       final found = await _safe(() => s.search('${t.artist} ${t.title}'));
-      final match = found.where((f) => f.matchKey == t.matchKey).firstOrNull ?? found.firstOrNull;
+      // только та же песня: «первый попавшийся» результат давал радио по чужой музыке
+      final match = found.where((f) => f.matchKey == t.matchKey).firstOrNull;
       if (match == null) continue;
       final sim = await _safe(() => s.similar(match));
       if (sim.isNotEmpty) return sim;
     }
-    // запасной вариант: другие треки этого исполнителя и тренды жанра на Audius
-    final byArtist = await _safe(() => audius.search(t.artist));
-    final genre = await _safe(() => audius.trending(genre: t.genre));
-    return [...byArtist.where((x) => x != t), ...genre];
+    return [];
   }
 
-  /// Бесконечное радио: следующая порция похожих, без уже звучавших.
+  /// Порция радио по треку. Смесь из трёх источников, поэтому радио работает с любой песни:
+  /// похожие от площадок + другие треки исполнителя + тренды жанра.
   Future<List<Track>> radioBatch(Track seed, Set<String> exclude) async {
-    final list = await similar(seed);
-    final seen = <String>{...exclude};
+    final results = await Future.wait([
+      similar(seed),
+      _artistTracks(seed),
+      _safe(() => audius.trending(genre: _audiusGenre(seed.genre))),
+    ]);
+    final similarList = results[0];
+    final artistList = results[1]..shuffle();
+    final genreList = results[2]..shuffle();
+
+    // если площадки не дали «похожих», больше берём у исполнителя и из жанра
+    final mix = <Track>[];
+    final sim = similarList.take(15).toList();
+    final art = artistList.take(sim.isEmpty ? 8 : 4).toList();
+    final gen = genreList.take(sim.isEmpty ? 8 : 4).toList();
+    // чередуем: два похожих, один исполнителя, один из жанра
+    var i = 0, a = 0, g = 0;
+    while (i < sim.length || a < art.length || g < gen.length) {
+      for (var k = 0; k < 2 && i < sim.length; k++) {
+        mix.add(sim[i++]);
+      }
+      if (a < art.length) mix.add(art[a++]);
+      if (g < gen.length) mix.add(gen[g++]);
+    }
+
+    final seen = <String>{...exclude, seed.key, seed.matchKey};
     return [
-      for (final t in list)
-        if (!t.previewOnly && seen.add(t.key) && seen.add(t.matchKey)) t
+      for (final t in mix)
+        // без превью и видео — радио должно играть само, без экрана
+        if (!t.previewOnly && !t.isVideo && seen.add(t.key) && seen.add(t.matchKey)) t
     ];
+  }
+
+  Future<List<Track>> _artistTracks(Track seed) async {
+    try {
+      final a = await catalog.artistFor(seed).timeout(const Duration(seconds: 12));
+      return a?.topTracks.toList() ?? [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Жанры площадок → жанры Audius (там свой список).
+  static String? _audiusGenre(String? g) {
+    final s = g?.toLowerCase() ?? '';
+    if (s.isEmpty) return null;
+    if (s.contains('rap') || s.contains('hip') || s.contains('рэп') || s.contains('хип')) return 'Hip-Hop/Rap';
+    if (s.contains('phonk') || s.contains('trap')) return 'Trap';
+    if (s.contains('electr') || s.contains('house') || s.contains('techno')) return 'Electronic';
+    if (s.contains('rock') || s.contains('рок')) return 'Rock';
+    if (s.contains('pop') || s.contains('поп')) return 'Pop';
+    if (s.contains('r&b') || s.contains('rnb') || s.contains('soul')) return 'R&B/Soul';
+    if (s.contains('lofi') || s.contains('lo-fi')) return 'Lo-Fi';
+    return null;
   }
 
   List<RecSection>? _cache;
@@ -85,7 +132,7 @@ class Recommendations {
       if (seeds.length == 3) break;
     }
     for (final seed in seeds) {
-      futures.add(similar(seed).then((s) {
+      futures.add(radioBatch(seed, const {}).then((s) {
         final list = s.where((t) => !t.previewOnly).take(15).toList();
         if (list.isNotEmpty) sections.add(RecSection('Похоже на «${seed.title}»', list, subtitle: seed.artist));
       }));

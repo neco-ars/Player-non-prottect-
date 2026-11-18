@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:music_player/models/track.dart';
+import 'package:music_player/services/lyrics.dart';
 import 'package:music_player/sources/audiomack.dart';
 import 'package:music_player/sources/net.dart';
 import 'package:music_player/sources/zvuk.dart';
@@ -71,6 +72,19 @@ void main() {
     expect(Net.isTransient(Exception('Яндекс: токен недействителен')), false);
     expect(Net.describe(Exception('HandshakeException: Connection terminated during handshake')),
         contains('защищённое соединение'));
+  });
+
+  test('синхронный текст LRC разбирается по времени', () {
+    final lines = LyricsService.parseLrc(
+        ['[00:12.50] Первая строка', '[01:02.3]Вторая', '[00:05.00][00:30.00] Припев'].join('\n'));
+    expect(lines.map((l) => l.text), ['Припев', 'Первая строка', 'Припев', 'Вторая']);
+    expect(lines[1].time, const Duration(seconds: 12, milliseconds: 500));
+    expect(lines.last.time, const Duration(minutes: 1, seconds: 2, milliseconds: 300));
+  });
+
+  test('название для поиска текста очищается от пометок', () {
+    expect(LyricsService.cleanTitle('Nuke (feat. X) [Prod. Y]'), 'Nuke');
+    expect(LyricsService.cleanTitle('Song - Explicit Version'), 'Song');
   });
 
   test('адрес прокси без https дополняется', () {

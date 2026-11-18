@@ -3,6 +3,8 @@ import 'package:just_audio/just_audio.dart';
 
 import '../services/app_services.dart';
 import '../services/player_service.dart';
+import 'equalizer_page.dart';
+import 'lyrics_sheet.dart';
 import 'nav.dart';
 import 'position.dart';
 import 'theme.dart';
@@ -88,24 +90,31 @@ class NowPlayingPage extends StatelessWidget {
                       IconButton(icon: const Icon(Icons.more_vert), onPressed: () => showTrackMenu(context, t)),
                     ]),
                     const Spacer(),
-                    // обложка
-                    GestureDetector(
+                    // обложка: свайп влево — следующий трек, вправо — предыдущий
+                    SwipeToSkip(
                       onTap: t.isVideo ? p.showVideo : null,
-                      child: Stack(alignment: Alignment.center, children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 30, offset: Offset(0, 12))],
-                          ),
-                          child: Cover(t.coverUrl, size: coverSize, radius: 8),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        transitionBuilder: (child, anim) => FadeTransition(
+                          opacity: anim,
+                          child: ScaleTransition(scale: Tween(begin: 0.92, end: 1.0).animate(anim), child: child),
                         ),
-                        if (t.isVideo)
-                          const CircleAvatar(
-                            radius: 30,
-                            backgroundColor: Colors.black54,
-                            child: Icon(Icons.smart_display, size: 34, color: Colors.white),
+                        child: Stack(key: ValueKey(t.key), alignment: Alignment.center, children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 30, offset: Offset(0, 12))],
+                            ),
+                            child: Cover(t.coverUrl, size: coverSize, radius: 8),
                           ),
-                      ]),
+                          if (t.isVideo)
+                            const CircleAvatar(
+                              radius: 30,
+                              backgroundColor: Colors.black54,
+                              child: Icon(Icons.smart_display, size: 34, color: Colors.white),
+                            ),
+                        ]),
+                      ),
                     ),
                     const Spacer(),
                     // название + лайк
@@ -211,6 +220,18 @@ class NowPlayingPage extends StatelessWidget {
                       ),
                       const Spacer(),
                       IconButton(
+                        tooltip: 'Текст песни',
+                        icon: const Icon(Icons.lyrics_outlined, color: AppColors.textDim),
+                        onPressed: () => showLyrics(context, t),
+                      ),
+                      IconButton(
+                        tooltip: 'Эквалайзер',
+                        icon: Icon(Icons.equalizer,
+                            color: p.equalizer.enabled ? AppColors.accent : AppColors.textDim),
+                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EqualizerPage())),
+                      ),
+                      IconButton(
+                        tooltip: 'Очередь',
                         icon: const Icon(Icons.queue_music, color: AppColors.textDim),
                         onPressed: () => showQueue(context),
                       ),

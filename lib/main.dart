@@ -7,12 +7,17 @@ import 'services/app_services.dart';
 import 'services/audio_handler.dart';
 import 'ui/home_shell.dart';
 import 'ui/theme.dart';
+import 'ui/widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (isDesktop) JustAudioMediaKit.ensureInitialized(windows: true, linux: true);
 
   app = await AppServices.init();
+  // свайпы по обложке и мини-плееру
+  skipHandlers
+    ..next = app.player.next
+    ..previous = app.player.previousTrack;
 
   if (isMobile || isWeb) {
     // плеер в шторке уведомлений / на экране блокировки с кнопками ⏮ ⏯ ⏭

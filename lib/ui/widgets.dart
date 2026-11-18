@@ -184,6 +184,48 @@ class VariantChip extends StatelessWidget {
   }
 }
 
+/// Свайп влево — следующий трек, вправо — предыдущий (обложка в плеере, мини-плеер).
+/// Короткие и медленные движения игнорируются, чтобы не переключать случайно.
+class SwipeToSkip extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  const SwipeToSkip({super.key, required this.child, this.onTap});
+  @override
+  State<SwipeToSkip> createState() => _SwipeToSkipState();
+}
+
+class _SwipeToSkipState extends State<SwipeToSkip> {
+  double _dx = 0;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        onHorizontalDragUpdate: (d) => setState(() => _dx += d.delta.dx),
+        onHorizontalDragEnd: (d) {
+          final v = d.primaryVelocity ?? 0;
+          final far = _dx.abs() > 60;
+          if ((v < -250 || (far && _dx < 0)) && skipHandlers.next != null) {
+            skipHandlers.next!();
+          } else if ((v > 250 || (far && _dx > 0)) && skipHandlers.previous != null) {
+            skipHandlers.previous!();
+          }
+          setState(() => _dx = 0);
+        },
+        onHorizontalDragCancel: () => setState(() => _dx = 0),
+        // во время свайпа элемент немного едет за пальцем
+        child: Transform.translate(offset: Offset(_dx.clamp(-80, 80) * 0.6, 0), child: widget.child),
+      );
+}
+
+/// Что делать при свайпе — задаётся при запуске (плеер), чтобы виджеты не зависели от сервисов.
+class SkipHandlers {
+  VoidCallback? next;
+  VoidCallback? previous;
+}
+
+final skipHandlers = SkipHandlers();
+
 /// Большая круглая кнопка «играть».
 class PlayButton extends StatelessWidget {
   final VoidCallback onPressed;

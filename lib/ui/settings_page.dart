@@ -6,6 +6,7 @@ import '../services/app_services.dart';
 import '../sources/net.dart';
 import '../sources/yandex.dart';
 import '../version.dart';
+import 'equalizer_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -55,6 +56,20 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Настройки')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.equalizer),
+          title: Text('Эквалайзер', style: h),
+          subtitle: Text(app.player.equalizer.supported
+              ? (app.player.equalizer.enabled ? 'Включён · ${app.player.equalizer.preset}' : 'Выключен')
+              : 'Только в приложении для Android'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => const EqualizerPage()));
+            setState(() {});
+          },
+        ),
+        const Divider(height: 32),
         Text('Без цензуры', style: h),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,

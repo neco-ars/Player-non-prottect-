@@ -22,12 +22,21 @@ class SearchService {
   /// Сколько ждать одну площадку. Остальные результаты показываются, не дожидаясь её.
   static const timeout = Duration(seconds: 10);
 
+  /// Последние результаты поиска: повторный запрос (вернулся на вкладку, «искать оригинал»,
+  /// радио, переход к альбому) не идёт в сеть заново.
+  final Map<String, (DateTime, SearchResult)> _cache = {};
+  static const _cacheTtl = Duration(minutes: 10);
+
   MusicSource sourceOf(Track t) => sources.firstWhere((s) => s.id == t.source);
 
   /// Поиск с результатами по мере ответа площадок: каждое событие — уже объединённая выдача
   /// от тех, кто ответил. Последнее событие (pending пуст) — окончательный результат.
   /// [includeVideo] = false — без YouTube (для фоновых поисков, чтобы не тратить лимит ключа).
   Stream<SearchResult> searchStream(String query, {bool includeVideo = true}) {
+    final key = '${includeVideo ? 1 : 0}|${query.trim().toLowerCase()}';
+    final hit = _cache[key];
+    if (hit != null && DateTime.now().difference(hit.$1) < _cacheTtl) return Stream.value(hit.$2);
+
     final active = sources.where((s) => s.isConfigured && (includeVideo || s.id != 'youtube')).toList();
     final ctrl = StreamController<SearchResult>();
     final lists = List<List<Track>?>.filled(active.length, null);
@@ -51,7 +60,14 @@ class SearchService {
         lists[i] = const [];
       }).whenComplete(emit);
     }
-    return ctrl.stream;
+    // окончательный результат без ошибок запоминаем
+    return ctrl.stream.map((r) {
+      if (r.done && r.errors.isEmpty) {
+        _cache[key] = (DateTime.now(), r);
+        if (_cache.length > 40) _cache.remove(_cache.keys.first);
+      }
+      return r;
+    });
   }
 
   /// Окончательный результат (для фоновых поисков).

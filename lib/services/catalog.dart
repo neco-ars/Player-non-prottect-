@@ -28,14 +28,50 @@ class CatalogService {
 
   MusicSource? sourceById(String id) => search.sources.where((s) => s.id == id).firstOrNull;
 
-  Future<AlbumInfo?> album(AlbumRef ref) => sourceById(ref.source)?.album(ref.id) ?? Future.value(null);
-  Future<ArtistInfo?> artist(ArtistRef ref) => sourceById(ref.source)?.artist(ref.id) ?? Future.value(null);
+  // Открытые альбомы и исполнители держим 15 минут: «назад» и повторный переход — без сети.
+  static const _ttl = Duration(minutes: 15);
+  final Map<String, (DateTime, AlbumInfo)> _albums = {};
+  final Map<String, (DateTime, ArtistInfo)> _artists = {};
+
+  Future<AlbumInfo?> _albumOf(MusicSource s, String id) async {
+    final key = '${s.id}:$id';
+    final hit = _albums[key];
+    if (hit != null && DateTime.now().difference(hit.$1) < _ttl) return hit.$2;
+    final a = await s.album(id);
+    if (a != null) {
+      _albums[key] = (DateTime.now(), a);
+      if (_albums.length > 30) _albums.remove(_albums.keys.first);
+    }
+    return a;
+  }
+
+  Future<ArtistInfo?> _artistOf(MusicSource s, String id) async {
+    final key = '${s.id}:$id';
+    final hit = _artists[key];
+    if (hit != null && DateTime.now().difference(hit.$1) < _ttl) return hit.$2;
+    final a = await s.artist(id);
+    if (a != null) {
+      _artists[key] = (DateTime.now(), a);
+      if (_artists.length > 30) _artists.remove(_artists.keys.first);
+    }
+    return a;
+  }
+
+  Future<AlbumInfo?> album(AlbumRef ref) async {
+    final s = sourceById(ref.source);
+    return s == null ? null : _albumOf(s, ref.id);
+  }
+
+  Future<ArtistInfo?> artist(ArtistRef ref) async {
+    final s = sourceById(ref.source);
+    return s == null ? null : _artistOf(s, ref.id);
+  }
 
   /// Альбом, в котором есть этот трек.
   Future<AlbumInfo?> albumFor(Track t) async {
     final own = sourceById(t.source);
     if (own != null && own.hasCatalog && t.albumId != null) {
-      final a = await _safe(() => own.album(t.albumId!));
+      final a = await _safe(() => _albumOf(own, t.albumId!));
       if (a != null && a.tracks.isNotEmpty) return a;
     }
     // ищем ту же песню там, где у треков есть альбомы
@@ -43,7 +79,7 @@ class CatalogService {
       final found = await _safeList(() => s.search('${t.artist} ${t.title}'));
       final match = found.where((f) => f.matchKey == t.matchKey && f.albumId != null).firstOrNull;
       if (match == null) continue;
-      final a = await _safe(() => s.album(match.albumId!));
+      final a = await _safe(() => _albumOf(s, match.albumId!));
       if (a != null && a.tracks.isNotEmpty) return a;
     }
     return null;
@@ -53,7 +89,7 @@ class CatalogService {
   Future<ArtistInfo?> artistFor(Track t) async {
     final own = sourceById(t.source);
     if (own != null && own.hasCatalog && t.artistId != null) {
-      final a = await _safe(() => own.artist(t.artistId!));
+      final a = await _safe(() => _artistOf(own, t.artistId!));
       if (a != null) return a;
     }
     final name = t.artist.split(RegExp(r',|&| feat\.? | ft\.? ', caseSensitive: false)).first.trim();
@@ -67,7 +103,7 @@ class CatalogService {
       final found = await _safeArtists(() => s.searchArtists(name));
       final match = found.where((a) => Track.normalize(a.name) == key).firstOrNull;
       if (match == null) continue;
-      final a = await _safe(() => s.artist(match.id));
+      final a = await _safe(() => _artistOf(s, match.id));
       if (a != null) return a;
     }
     return null;
