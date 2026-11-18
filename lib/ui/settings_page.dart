@@ -3,10 +3,12 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/track.dart';
 import '../services/app_services.dart';
+import '../services/keys.dart';
 import '../sources/net.dart';
 import '../sources/yandex.dart';
 import '../version.dart';
 import 'equalizer_page.dart';
+import 'login_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -18,6 +20,7 @@ class _SettingsPageState extends State<SettingsPage> {
   late final _token = TextEditingController(text: app.settings.yandexToken ?? '');
   late final _ytKey = TextEditingController(text: app.settings.youtubeKey ?? '');
   late final _proxy = TextEditingController(text: app.settings.proxyUrl ?? '');
+  late final _genius = TextEditingController(text: app.settings.geniusToken ?? '');
   late final _zvuk = TextEditingController(text: app.settings.zvukToken ?? '');
   late final _amKey = TextEditingController(text: app.settings.audiomackKey ?? '');
   late final _amSecret = TextEditingController(text: app.settings.audiomackSecret ?? '');
@@ -39,7 +42,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void _saveYouTube() {
     final v = _ytKey.text.trim();
     app.settings.youtubeKey = v;
-    app.youtube.apiKey = v.isEmpty ? null : v;
+    app.youtube.apiKey = AppKeys.pick(v, AppKeys.youtube);
     _toast(v.isEmpty ? 'YouTube отключён' : 'YouTube подключён');
     setState(() {});
   }
@@ -62,7 +65,7 @@ class _SettingsPageState extends State<SettingsPage> {
           title: Text('Эквалайзер', style: h),
           subtitle: Text(app.player.equalizer.supported
               ? (app.player.equalizer.enabled ? 'Включён · ${app.player.equalizer.preset}' : 'Выключен')
-              : 'Только в приложении для Android'),
+              : 'Только в приложениях для Android и Windows'),
           trailing: const Icon(Icons.chevron_right),
           onTap: () async {
             await Navigator.push(context, MaterialPageRoute(builder: (_) => const EqualizerPage()));
@@ -95,17 +98,30 @@ class _SettingsPageState extends State<SettingsPage> {
         const Divider(height: 40),
         Row(children: [Expanded(child: Text('Яндекс Музыка', style: h)), _status(app.yandex.isConfigured)]),
         const SizedBox(height: 8),
-        const Text(
-          '1. Нажми «Войти в Яндекс» и войди в свой аккаунт.\n'
-          '2. После входа браузер откроет пустую страницу. Скопируй весь адрес из адресной строки.\n'
-          '3. Вставь его сюда и нажми «Сохранить».\n\n'
-          'Полные треки и «Моя волна» доступны с подпиской Яндекс Плюс. Токен хранится только на этом устройстве.',
+        Text(
+          inAppLoginSupported
+              ? 'Нажми «Войти в Яндекс» и войди в свой аккаунт — больше ничего делать не нужно.\n\n'
+                  'Полные треки и «Моя волна» доступны с подпиской Яндекс Плюс. Вход хранится только на этом устройстве.'
+              : '1. Нажми «Войти в Яндекс» и войди в свой аккаунт.\n'
+                  '2. После входа браузер откроет пустую страницу. Скопируй весь адрес из адресной строки.\n'
+                  '3. Вставь его сюда и нажми «Сохранить».\n\n'
+                  'Полные треки и «Моя волна» доступны с подпиской Яндекс Плюс. Токен хранится только на этом устройстве.',
         ),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
+        FilledButton.icon(
           icon: const Icon(Icons.login),
-          label: const Text('Войти в Яндекс'),
-          onPressed: () => launchUrl(YandexSource.authUrl, mode: LaunchMode.externalApplication),
+          label: Text(app.yandex.isConfigured ? 'Войти заново' : 'Войти в Яндекс'),
+          onPressed: () async {
+            if (!inAppLoginSupported) {
+              await launchUrl(YandexSource.authUrl, mode: LaunchMode.externalApplication);
+              return;
+            }
+            final token = await loginYandex(context);
+            if (token != null && mounted) {
+              _token.text = token;
+              _saveYandex();
+            }
+          },
         ),
         const SizedBox(height: 12),
         TextField(
@@ -127,92 +143,44 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
         ]),
         const Divider(height: 40),
-        Row(children: [Expanded(child: Text('YouTube', style: h)), _status(app.youtube.isConfigured)]),
-        const SizedBox(height: 8),
-        const Text(
-          'Для поиска по YouTube нужен бесплатный ключ YouTube Data API:\n'
-          '1. Открой Google Cloud Console и создай проект.\n'
-          '2. В «Библиотеке API» включи «YouTube Data API v3».\n'
-          '3. В «Учётных данных» создай «Ключ API» и вставь его сюда.\n\n'
-          'Бесплатного лимита хватает примерно на 100 поисков в день. '
-          'Ролики играют через официальный плеер YouTube: на экране, без фонового режима.',
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.open_in_new),
-          label: const Text('Открыть Google Cloud Console'),
-          onPressed: () => launchUrl(Uri.parse('https://console.cloud.google.com/apis/library/youtube.googleapis.com'),
-              mode: LaunchMode.externalApplication),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _ytKey,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'Ключ YouTube Data API', border: OutlineInputBorder()),
-        ),
-        const SizedBox(height: 8),
-        Row(children: [
-          FilledButton(onPressed: _saveYouTube, child: const Text('Сохранить')),
-          const SizedBox(width: 8),
-          if (app.youtube.isConfigured)
-            TextButton(
-              onPressed: () {
-                _ytKey.clear();
-                _saveYouTube();
-              },
-              child: const Text('Отключить'),
-            ),
-        ]),
-        if (Net.needsProxy) ...[
-          const Divider(height: 40),
-          Row(children: [Expanded(child: Text('Прокси (веб-версия)', style: h)), _status(Net.proxy.isNotEmpty)]),
-          const SizedBox(height: 8),
-          const Text('Браузер не пускает сайт напрямую в Яндекс и SoundCloud, поэтому запросы идут через прокси '
-              'на Cloudflare Workers. Обычно адрес уже вшит в сборку — поле нужно, только если его поменяли.'),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _proxy,
-            decoration: const InputDecoration(
-                labelText: 'Адрес прокси', hintText: 'https://music-proxy.ИМЯ.workers.dev', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 8),
-          FilledButton(
-            onPressed: () {
-              _proxy.text = Net.normalize(_proxy.text);
-              app.settings.proxyUrl = _proxy.text;
-              Net.userProxy = _proxy.text;
-              _toast('Сохранено');
-              setState(() {});
-            },
-            child: const Text('Сохранить'),
-          ),
-        ],
-        const Divider(height: 40),
         Row(children: [Expanded(child: Text('Звук', style: h)), _status(app.zvuk.isConfigured)]),
         const SizedBox(height: 8),
-        const Text(
+        Text(
           'Без входа работает поиск, но вместо треков Звук может отдавать только 30-секундные фрагменты '
-          '(тогда плеер сам ищет полную версию на других площадках).\n\n'
-          'Для полных треков вставь токен своего аккаунта — подписка не обязательна, '
-          'если на сайте Звука ты можешь слушать без неё. С подпиской — 320 кбит/с:\n'
-          '1. Войди на zvuk.com в браузере.\n'
-          '2. Не закрывая сайт, открой ссылку ниже — откроется текст с данными профиля.\n'
-          '3. Скопируй значение поля "token" (без кавычек) и вставь сюда.\n'
-          'Токен никому не показывай.',
+          '(тогда плеер сам ищет полную версию на других площадках). Чтобы слушать целиком, войди своим аккаунтом '
+          '(подписка не обязательна, если на сайте Звука ты слушаешь без неё; с подпиской — 320 кбит/с).\n\n'
+          '${inAppLoginSupported ? 'Нажми «Войти в Звук», войди на сайте и нажми «Готово».' : '1. Войди на zvuk.com в браузере.\n'
+              '2. Не закрывая сайт, открой ссылку ниже — откроется текст с данными профиля.\n'
+              '3. Скопируй значение поля "token" (без кавычек) и вставь сюда.'}',
         ),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.open_in_new),
-          label: const Text('Открыть zvuk.com/api/tiny/profile'),
-          onPressed: () =>
-              launchUrl(Uri.parse('https://zvuk.com/api/tiny/profile'), mode: LaunchMode.externalApplication),
-        ),
+        if (inAppLoginSupported)
+          FilledButton.icon(
+            icon: const Icon(Icons.login),
+            label: Text(app.zvuk.userToken?.isNotEmpty == true ? 'Войти заново' : 'Войти в Звук'),
+            onPressed: () async {
+              final token = await loginZvuk(context);
+              if (token != null && mounted) {
+                _zvuk.text = token;
+                app.settings.zvukToken = token;
+                app.zvuk.userToken = token;
+                _toast('Звук: вход выполнен');
+                setState(() {});
+              }
+            },
+          )
+        else
+          OutlinedButton.icon(
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Открыть zvuk.com/api/tiny/profile'),
+            onPressed: () =>
+                launchUrl(Uri.parse('https://zvuk.com/api/tiny/profile'), mode: LaunchMode.externalApplication),
+          ),
         const SizedBox(height: 12),
         TextField(
           controller: _zvuk,
           obscureText: true,
-          decoration: const InputDecoration(
-              labelText: 'Токен Звука (необязательно)', border: OutlineInputBorder()),
+          decoration: const InputDecoration(labelText: 'Токен Звука (необязательно)', border: OutlineInputBorder()),
         ),
         const SizedBox(height: 8),
         FilledButton(
@@ -226,50 +194,148 @@ class _SettingsPageState extends State<SettingsPage> {
           child: const Text('Сохранить'),
         ),
         const Divider(height: 40),
-        Row(children: [Expanded(child: Text('Audiomack', style: h)), _status(app.audiomack.isConfigured)]),
-        const SizedBox(height: 8),
-        const Text(
-          'Площадка, куда артисты сами выкладывают музыку — много рэпа в оригинальных версиях.\n\n'
-          'Нужны ключи Audiomack Data API (consumer key и consumer secret). Их выдают по запросу:\n'
-          '1. Открой страницу документации API (кнопка ниже) и найди ссылку для связи.\n'
-          '2. Напиши, что делаешь личный некоммерческий плеер и нужен доступ к поиску и воспроизведению.\n'
-          '3. Когда пришлют ключи — вставь их сюда.',
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.open_in_new),
-          label: const Text('Документация Audiomack API'),
-          onPressed: () =>
-              launchUrl(Uri.parse('https://audiomack.com/data-api/docs'), mode: LaunchMode.externalApplication),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _amKey,
-          decoration: const InputDecoration(labelText: 'Consumer key', border: OutlineInputBorder()),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _amSecret,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'Consumer secret', border: OutlineInputBorder()),
-        ),
-        const SizedBox(height: 8),
-        FilledButton(
-          onPressed: () {
-            final k = _amKey.text.trim(), s = _amSecret.text.trim();
-            app.settings.audiomackKey = k;
-            app.settings.audiomackSecret = s;
-            app.audiomack.consumerKey = k;
-            app.audiomack.consumerSecret = s;
-            _toast(k.isEmpty || s.isEmpty ? 'Audiomack отключён' : 'Audiomack подключён');
-            setState(() {});
-          },
-          child: const Text('Сохранить'),
-        ),
-        const Divider(height: 40),
         Text('SoundCloud', style: h),
         const SizedBox(height: 8),
-        const Text('Работает без входа. Треки SoundCloud Go+ доступны только фрагментом — для них плеер сам ищет полную версию на других площадках.'),
+        const Text(
+            'Работает без входа. Треки SoundCloud Go+ доступны только фрагментом — для них плеер сам ищет полную версию на других площадках.'),
+        const Divider(height: 40),
+        // ключи приложения: обычно уже встроены в сборку, свои нужны, только если встроенный закончился
+        ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: EdgeInsets.zero,
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          title: Text('Дополнительно: свои ключи', style: h),
+          subtitle: const Text('YouTube, Genius, Audiomack, прокси. Обычно уже встроены — трогать не нужно.'),
+          children: [
+            const Divider(height: 40),
+            Row(children: [Expanded(child: Text('YouTube', style: h)), _status(app.youtube.isConfigured)]),
+            const SizedBox(height: 8),
+            const Text(
+              'Для поиска по YouTube нужен бесплатный ключ YouTube Data API:\n'
+              '1. Открой Google Cloud Console и создай проект.\n'
+              '2. В «Библиотеке API» включи «YouTube Data API v3».\n'
+              '3. В «Учётных данных» создай «Ключ API» и вставь его сюда.\n\n'
+              'Бесплатного лимита хватает примерно на 100 поисков в день. '
+              'Ролики играют через официальный плеер YouTube: на экране, без фонового режима.',
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('Открыть Google Cloud Console'),
+              onPressed: () => launchUrl(
+                  Uri.parse('https://console.cloud.google.com/apis/library/youtube.googleapis.com'),
+                  mode: LaunchMode.externalApplication),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _ytKey,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Ключ YouTube Data API', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            Row(children: [
+              FilledButton(onPressed: _saveYouTube, child: const Text('Сохранить')),
+              const SizedBox(width: 8),
+              if (app.youtube.isConfigured)
+                TextButton(
+                  onPressed: () {
+                    _ytKey.clear();
+                    _saveYouTube();
+                  },
+                  child: const Text('Отключить'),
+                ),
+            ]),
+            if (Net.needsProxy) ...[
+              const Divider(height: 40),
+              Row(children: [Expanded(child: Text('Прокси (веб-версия)', style: h)), _status(Net.proxy.isNotEmpty)]),
+              const SizedBox(height: 8),
+              const Text('Браузер не пускает сайт напрямую в Яндекс и SoundCloud, поэтому запросы идут через прокси '
+                  'на Cloudflare Workers. Обычно адрес уже вшит в сборку — поле нужно, только если его поменяли.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _proxy,
+                decoration: const InputDecoration(
+                    labelText: 'Адрес прокси',
+                    hintText: 'https://music-proxy.ИМЯ.workers.dev',
+                    border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 8),
+              FilledButton(
+                onPressed: () {
+                  _proxy.text = Net.normalize(_proxy.text);
+                  app.settings.proxyUrl = _proxy.text;
+                  Net.userProxy = _proxy.text;
+                  _toast('Сохранено');
+                  setState(() {});
+                },
+                child: const Text('Сохранить'),
+              ),
+            ],
+            const Divider(height: 40),
+            Row(children: [Expanded(child: Text('Genius', style: h)), _status(app.genius.token?.isNotEmpty == true)]),
+            const SizedBox(height: 8),
+            const Text('Нужен, чтобы кнопка «Открыть текст на Genius» вела сразу на страницу песни, а не в поиск. '
+                'Токен: genius.com/api-clients → New API Client → Generate Access Token.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _genius,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Genius Client Access Token', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            FilledButton(
+              onPressed: () {
+                final v = _genius.text.trim();
+                app.settings.geniusToken = v;
+                app.genius.token = AppKeys.pick(v, AppKeys.genius);
+                _toast(v.isEmpty ? 'Genius: встроенный ключ' : 'Genius: свой токен');
+                setState(() {});
+              },
+              child: const Text('Сохранить'),
+            ),
+            const Divider(height: 40),
+            Row(children: [Expanded(child: Text('Audiomack', style: h)), _status(app.audiomack.isConfigured)]),
+            const SizedBox(height: 8),
+            const Text(
+              'Площадка, куда артисты сами выкладывают музыку — много рэпа в оригинальных версиях.\n\n'
+              'Нужны ключи Audiomack Data API (consumer key и consumer secret). Их выдают по запросу:\n'
+              '1. Открой страницу документации API (кнопка ниже) и найди ссылку для связи.\n'
+              '2. Напиши, что делаешь личный некоммерческий плеер и нужен доступ к поиску и воспроизведению.\n'
+              '3. Когда пришлют ключи — вставь их сюда.',
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('Документация Audiomack API'),
+              onPressed: () =>
+                  launchUrl(Uri.parse('https://audiomack.com/data-api/docs'), mode: LaunchMode.externalApplication),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _amKey,
+              decoration: const InputDecoration(labelText: 'Consumer key', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _amSecret,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Consumer secret', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            FilledButton(
+              onPressed: () {
+                final k = _amKey.text.trim(), s = _amSecret.text.trim();
+                app.settings.audiomackKey = k;
+                app.settings.audiomackSecret = s;
+                app.audiomack.consumerKey = AppKeys.pick(k, AppKeys.audiomackKey);
+                app.audiomack.consumerSecret = AppKeys.pick(s, AppKeys.audiomackSecret);
+                _toast(k.isEmpty || s.isEmpty ? 'Audiomack отключён' : 'Audiomack подключён');
+                setState(() {});
+              },
+              child: const Text('Сохранить'),
+            ),
+          ],
+        ),
         const SizedBox(height: 32),
         Center(
           child: Text('Music Player $appVersion',

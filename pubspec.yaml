@@ -1,7 +1,7 @@
 name: music_player
 description: "Агрегатор музыки: поиск по Яндекс Музыке, SoundCloud и YouTube в одном плеере."
 publish_to: 'none'
-version: 0.10.0+11
+version: 0.11.0+12
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -22,6 +22,13 @@ dependencies:
   audio_service: ^0.18.19
   file_picker: ^13.3.3
   audio_metadata_reader: ^1.8.1
+  webview_flutter: ^4.14.1
+
+# Пакет just_audio_media_kit (public domain) лежит в проекте с небольшой доработкой:
+# звуковой фильтр mpv для эквалайзера на ПК. См. packages/just_audio_media_kit.
+dependency_overrides:
+  just_audio_media_kit:
+    path: packages/just_audio_media_kit
 
 dev_dependencies:
   flutter_test:

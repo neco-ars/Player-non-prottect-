@@ -13,21 +13,20 @@ class EqualizerPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Эквалайзер')),
       body: !eq.supported
-          ? const _Note('Эквалайзер доступен только в приложении для Android: на iPhone, в браузере и на Windows '
-              'плеер не даёт к нему доступа.')
+          ? const _Note('Эквалайзер есть в приложениях для Android и Windows. На iPhone и в браузере '
+              'обработать звук нельзя: системный плеер Apple и браузер не дают к нему доступа.')
           : ListenableBuilder(
               listenable: eq,
               builder: (context, _) {
-                final params = eq.params;
                 return ListView(padding: const EdgeInsets.all(16), children: [
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Включить', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
                     subtitle: Text(eq.enabled ? 'Пресет: ${eq.preset}' : 'Звук без обработки'),
                     value: eq.enabled,
-                    onChanged: params == null ? null : eq.setEnabled,
+                    onChanged: eq.ready ? eq.setEnabled : null,
                   ),
-                  if (params == null)
+                  if (!eq.ready)
                     const _Note('Включи любой трек — полосы эквалайзера появятся, когда плеер начнёт играть.')
                   else ...[
                     const SizedBox(height: 8),
@@ -54,7 +53,7 @@ class EqualizerPage extends StatelessWidget {
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            for (var i = 0; i < params.bands.length; i++)
+                            for (var i = 0; i < eq.bandCount; i++)
                               Expanded(child: _Band(index: i, eq: eq)),
                           ],
                         ),
@@ -62,7 +61,7 @@ class EqualizerPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Диапазон: ${params.minDecibels.round()}…+${params.maxDecibels.round()} дБ. '
+                      'Диапазон: ${eq.minDb.round()}…+${eq.maxDb.round()} дБ. '
                       'Сильное усиление баса на громкости может давать хрип — тогда убавь пару делений.',
                       style: const TextStyle(color: AppColors.textDim, fontSize: 12),
                     ),
@@ -81,32 +80,24 @@ class _Band extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final params = eq.params!;
-    final band = params.bands[index];
-    return StreamBuilder<double>(
-      stream: band.gainStream,
-      initialData: band.gain,
-      builder: (context, snap) {
-        final gain = snap.data ?? 0;
-        return Column(children: [
-          Text('${gain >= 0 ? '+' : ''}${gain.toStringAsFixed(0)}',
-              style: const TextStyle(fontSize: 12, color: AppColors.textDim)),
-          Expanded(
-            child: RotatedBox(
-              quarterTurns: 3,
-              child: Slider(
-                min: params.minDecibels,
-                max: params.maxDecibels,
-                value: gain.clamp(params.minDecibels, params.maxDecibels),
-                activeColor: AppColors.accent,
-                onChanged: eq.enabled ? (v) => eq.setGain(index, v) : null,
-              ),
-            ),
+    final gain = eq.gain(index);
+    return Column(children: [
+      Text('${gain >= 0 ? '+' : ''}${gain.toStringAsFixed(0)}',
+          style: const TextStyle(fontSize: 12, color: AppColors.textDim)),
+      Expanded(
+        child: RotatedBox(
+          quarterTurns: 3,
+          child: Slider(
+            min: eq.minDb,
+            max: eq.maxDb,
+            value: gain.clamp(eq.minDb, eq.maxDb),
+            activeColor: AppColors.accent,
+            onChanged: eq.enabled ? (v) => eq.setGain(index, v) : null,
           ),
-          Text(EqualizerService.formatHz(EqualizerService.hz(band)), style: const TextStyle(fontSize: 11)),
-        ]);
-      },
-    );
+        ),
+      ),
+      Text(EqualizerService.formatHz(eq.bandHz(index)), style: const TextStyle(fontSize: 10)),
+    ]);
   }
 }
 

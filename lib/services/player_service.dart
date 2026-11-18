@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/track.dart';
 import '../sources/net.dart';
@@ -278,6 +279,27 @@ class PlayerService extends ChangeNotifier {
   }
 
   void jumpTo(int i) => _playAt(i);
+
+  // ---------- громкость (на ПК и в браузере; на телефоне — кнопками телефона) ----------
+  double volume = 1;
+  bool get muted => volume == 0;
+  double _beforeMute = 1;
+
+  Future<void> loadVolume() async {
+    final p = await SharedPreferences.getInstance();
+    volume = (p.getDouble('volume') ?? 1).clamp(0.0, 1.0);
+    await player.setVolume(volume);
+  }
+
+  Future<void> setVolume(double v) async {
+    volume = v.clamp(0.0, 1.0);
+    if (volume > 0) _beforeMute = volume;
+    await player.setVolume(volume);
+    notifyListeners();
+    (await SharedPreferences.getInstance()).setDouble('volume', volume);
+  }
+
+  Future<void> toggleMute() => setVolume(muted ? (_beforeMute > 0 ? _beforeMute : 0.5) : 0);
 
   /// Свайп вправо: сразу предыдущий трек (а не перемотка в начало, как у кнопки ⏮).
   Future<void> previousTrack() async {

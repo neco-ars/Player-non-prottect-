@@ -13,12 +13,14 @@ import 'widgets.dart';
 class ArtistPage extends StatefulWidget {
   final Future<ArtistInfo?> Function() load;
   final String? title;
-  final String notFound;
-  const ArtistPage({super.key, required this.load, this.title, this.notFound = 'Исполнитель не найден.'});
+  final String Function() notFound;
+  const ArtistPage({super.key, required this.load, this.title, this.notFound = _defaultNotFound});
 
   @override
   State<ArtistPage> createState() => _ArtistPageState();
 }
+
+String _defaultNotFound() => 'Исполнитель не найден.';
 
 class _ArtistPageState extends State<ArtistPage> {
   late Future<ArtistInfo?> _future = widget.load();
@@ -34,7 +36,7 @@ class _ArtistPageState extends State<ArtistPage> {
         if (a == null) {
           return messageScaffold(
             widget.title,
-            snap.hasError ? 'Не удалось загрузить исполнителя: ${snap.error}' : widget.notFound,
+            snap.hasError ? 'Не удалось загрузить исполнителя: ${snap.error}' : widget.notFound(),
             () => setState(() => _future = widget.load()),
           );
         }

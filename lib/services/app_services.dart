@@ -10,6 +10,8 @@ import '../sources/youtube.dart';
 import 'catalog.dart';
 import 'equalizer.dart';
 import 'library.dart';
+import 'genius.dart';
+import 'keys.dart';
 import 'lyrics.dart';
 import 'player_service.dart';
 import 'recommendations.dart';
@@ -31,20 +33,23 @@ class AppServices {
   final PlayerService player;
   final CatalogService catalog;
   final LyricsService lyrics = LyricsService();
+  final GeniusService genius;
 
   AppServices._(this.settings, this.library, this.yandex, this.youtube, this.audius, this.audiomack, this.zvuk, this.local,
-      this.search, this.recs, this.player, this.catalog);
+      this.search, this.recs, this.player, this.catalog, this.genius);
 
   static Future<AppServices> init() async {
     final settings = await Settings.load();
     Net.userProxy = settings.proxyUrl;
     final library = await Library.load();
     final yandex = YandexSource(settings.yandexToken);
-    final youtube = YouTubeSource(settings.youtubeKey);
+    final youtube = YouTubeSource(AppKeys.pick(settings.youtubeKey, AppKeys.youtube));
     final audius = AudiusSource();
     final local = LocalSource();
     await local.load();
-    final audiomack = AudiomackSource(consumerKey: settings.audiomackKey, consumerSecret: settings.audiomackSecret);
+    final audiomack = AudiomackSource(
+        consumerKey: AppKeys.pick(settings.audiomackKey, AppKeys.audiomackKey),
+        consumerSecret: AppKeys.pick(settings.audiomackSecret, AppKeys.audiomackSecret));
     final zvuk = ZvukSource(settings.zvukToken);
     final search = SearchService([local, yandex, zvuk, SoundCloudSource(), audiomack, audius, youtube]);
     final catalog = CatalogService(search);
@@ -52,10 +57,11 @@ class AppServices {
     final equalizer = EqualizerService();
     await equalizer.load();
     final player = PlayerService(search, library, recs, equalizer);
+    await player.loadVolume();
     TrackGroup.preferExplicitDefault(settings.preferExplicit);
     player.findOriginal = settings.findOriginal;
     return AppServices._(
-        settings, library, yandex, youtube, audius, audiomack, zvuk, local, search, recs, player, catalog);
+        settings, library, yandex, youtube, audius, audiomack, zvuk, local, search, recs, player, catalog, GeniusService(AppKeys.pick(settings.geniusToken, AppKeys.genius)));
   }
 }
 

@@ -1,6 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:music_player/models/track.dart';
+import 'package:music_player/services/catalog.dart';
+import 'package:music_player/services/equalizer.dart';
+import 'package:music_player/services/keys.dart';
 import 'package:music_player/services/lyrics.dart';
 import 'package:music_player/sources/audiomack.dart';
 import 'package:music_player/sources/net.dart';
@@ -85,6 +88,32 @@ void main() {
   test('название для поиска текста очищается от пометок', () {
     expect(LyricsService.cleanTitle('Nuke (feat. X) [Prod. Y]'), 'Nuke');
     expect(LyricsService.cleanTitle('Song - Explicit Version'), 'Song');
+  });
+
+  test('эквалайзер на ПК: фильтр mpv с запасом от хрипа', () {
+    expect(EqualizerService.desktopFilter([60, 1000], [0, 0]), '');
+    final f = EqualizerService.desktopFilter([60, 1000, 8000], [6, 0, -3]);
+    expect(f, startsWith('lavfi=['));
+    expect(f, contains('volume=volume=-4.2dB'));
+    expect(f, contains('equalizer=f=60:t=o:w=1:g=6.0'));
+    expect(f, contains('equalizer=f=8000:t=o:w=1:g=-3.0'));
+    expect(f, isNot(contains('f=1000')));
+  });
+
+  test('та же песня находится, даже если загрузил другой человек', () {
+    // как на SoundCloud: исполнитель — тот, кто загрузил, а настоящий — в названии
+    const sc = Track(source: 'soundcloud', id: '1', title: 'LAZZY2WICE - TWISTED METAL', artist: 'some uploader');
+    const zvuk = Track(source: 'zvuk', id: '2', title: 'Twisted Metal', artist: 'LAZZY2WICE');
+    const other = Track(source: 'zvuk', id: '3', title: 'Twisted Metal', artist: 'Совсем другой');
+    final (artists, title) = CatalogService.matchKeys(sc);
+    expect(CatalogService.sameSong(zvuk, artists, title), true);
+    expect(CatalogService.sameSong(other, artists, title), false);
+  });
+
+  test('свой ключ из настроек важнее встроенного', () {
+    expect(AppKeys.pick('mine', 'built'), 'mine');
+    expect(AppKeys.pick('  ', 'built'), 'built');
+    expect(AppKeys.pick(null, ''), isNull);
   });
 
   test('адрес прокси без https дополняется', () {

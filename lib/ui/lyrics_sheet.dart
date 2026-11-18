@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/track.dart';
 import '../services/app_services.dart';
@@ -77,8 +78,17 @@ class _LyricsViewState extends State<_LyricsView> {
             }
             final l = snap.data;
             if (l == null || l.isEmpty) {
-              return const _Center('Текст этой песни не найден.\n\nТексты берутся из открытой базы LRCLIB — '
-                  'в ней есть не все песни, особенно редкие и свежие.');
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    const Text('В открытой базе LRCLIB текста этой песни нет.',
+                        textAlign: TextAlign.center, style: TextStyle(color: AppColors.textDim)),
+                    const SizedBox(height: 16),
+                    _GeniusButton(track: t),
+                  ]),
+                ),
+              );
             }
             if (l.instrumental && l.synced.isEmpty && (l.plain?.trim().isEmpty ?? true)) {
               return const _Center('Инструментал — без слов.');
@@ -86,6 +96,8 @@ class _LyricsViewState extends State<_LyricsView> {
             if (l.synced.isEmpty) {
               return ListView(controller: widget.scroll, padding: const EdgeInsets.fromLTRB(24, 8, 24, 48), children: [
                 Text(l.plain!, style: const TextStyle(fontSize: 20, height: 1.5, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 24),
+                Center(child: _GeniusButton(track: t)),
               ]);
             }
             // синхронный текст работает только для текущего трека
@@ -152,6 +164,35 @@ class _LyricsViewState extends State<_LyricsView> {
         ),
     ]);
   }
+}
+
+/// Открыть текст на Genius (сайт или их приложение).
+class _GeniusButton extends StatefulWidget {
+  final Track track;
+  const _GeniusButton({required this.track});
+  @override
+  State<_GeniusButton> createState() => _GeniusButtonState();
+}
+
+class _GeniusButtonState extends State<_GeniusButton> {
+  bool _busy = false;
+
+  Future<void> _open() async {
+    setState(() => _busy = true);
+    final url = await app.genius.pageFor(widget.track);
+    if (mounted) setState(() => _busy = false);
+    await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) => FilledButton.icon(
+        onPressed: _busy ? null : _open,
+        style: FilledButton.styleFrom(backgroundColor: const Color(0xFFFFFF64), foregroundColor: Colors.black),
+        icon: _busy
+            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+            : const Icon(Icons.open_in_new),
+        label: const Text('Открыть текст на Genius'),
+      );
 }
 
 class _Center extends StatelessWidget {

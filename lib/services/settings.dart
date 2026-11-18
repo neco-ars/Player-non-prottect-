@@ -15,6 +15,10 @@ class Settings {
   String? get youtubeKey => _str('youtube_key');
   set youtubeKey(String? v) => _setStr('youtube_key', v);
 
+  /// Токен Genius (Client Access Token) — для ссылок на тексты.
+  String? get geniusToken => _str('genius_token');
+  set geniusToken(String? v) => _setStr('genius_token', v);
+
   /// Токен своего аккаунта Звука (необязательно: без него работает гостевой доступ).
   String? get zvukToken => _str('zvuk_token');
   set zvukToken(String? v) => _setStr('zvuk_token', v);

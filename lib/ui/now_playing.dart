@@ -8,6 +8,7 @@ import 'lyrics_sheet.dart';
 import 'nav.dart';
 import 'position.dart';
 import 'theme.dart';
+import 'volume.dart';
 import 'track_menu.dart';
 import 'widgets.dart';
 
@@ -210,6 +211,7 @@ class NowPlayingPage extends StatelessWidget {
                         onPressed: p.cycleRepeat,
                       ),
                     ]),
+                    if (showVolume) const Padding(padding: EdgeInsets.only(top: 4), child: VolumeControl()),
                     const SizedBox(height: 8),
                     Row(children: [
                       TextButton.icon(

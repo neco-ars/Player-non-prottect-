@@ -4,6 +4,7 @@ import 'package:just_audio/just_audio.dart';
 import '../services/app_services.dart';
 import 'now_playing.dart';
 import 'position.dart';
+import 'volume.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -107,6 +108,8 @@ class MiniPlayer extends StatelessWidget {
                           },
                         ),
                       IconButton(icon: const Icon(Icons.skip_next), onPressed: p.hasNext ? p.next : null),
+                    if (showVolume && MediaQuery.sizeOf(context).width >= 600)
+                      const Padding(padding: EdgeInsets.only(right: 12), child: VolumeControl(width: 110)),
                     ]),
                   ),
                   if (!t.isVideo) _ThinProgress(player: p.player),

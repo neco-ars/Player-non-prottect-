@@ -52,3 +52,6 @@ app.*.map.json
 
 # локальные настройки Claude Code
 /.claude/
+
+# ключи приложения для локальной сборки — в git не попадают (образец: keys.example.json)
+/keys.json

@@ -12,18 +12,21 @@ class AlbumPage extends StatefulWidget {
   final Future<AlbumInfo?> Function() load;
   final String? title;
   final AlbumRef? preview; // что показать, пока альбом грузится
-  final String notFound;
+  /// Текст, если альбом не нашёлся; считается после загрузки (там отчёт по площадкам).
+  final String Function() notFound;
   const AlbumPage({
     super.key,
     required this.load,
     this.title,
     this.preview,
-    this.notFound = 'Альбом не найден.',
+    this.notFound = _defaultNotFound,
   });
 
   @override
   State<AlbumPage> createState() => _AlbumPageState();
 }
+
+String _defaultNotFound() => 'Альбом не найден.';
 
 class _AlbumPageState extends State<AlbumPage> {
   late Future<AlbumInfo?> _future = widget.load();
@@ -41,7 +44,7 @@ class _AlbumPageState extends State<AlbumPage> {
           if (album == null) {
             return _Message(
               title: widget.title,
-              text: snap.hasError ? 'Не удалось загрузить альбом: ${snap.error}' : widget.notFound,
+              text: snap.hasError ? 'Не удалось загрузить альбом: ${snap.error}' : widget.notFound(),
               onRetry: () => setState(() => _future = widget.load()),
             );
           }

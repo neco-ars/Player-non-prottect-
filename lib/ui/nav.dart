@@ -14,7 +14,7 @@ void openAlbumOf(BuildContext context, Track t) => HomeShell.push(
       AlbumPage(
         load: () => app.catalog.albumFor(t),
         title: t.album,
-        notFound: 'Не удалось найти альбом с «${t.title}» ни на одной площадке с альбомами (Звук, Яндекс, SoundCloud, Audius).',
+        notFound: () => 'Не нашёл альбом с «${t.title}».\n\n${app.catalog.lastReport}',
       ),
     );
 
@@ -23,7 +23,7 @@ void openArtistOf(BuildContext context, Track t) => HomeShell.push(
       ArtistPage(
         load: () => app.catalog.artistFor(t),
         title: t.artist,
-        notFound: 'Не удалось найти страницу «${t.artist}» ни на одной площадке с исполнителями.',
+        notFound: () => 'Не нашёл страницу «${t.artist}».\n\n${app.catalog.lastReport}',
       ),
     );
 

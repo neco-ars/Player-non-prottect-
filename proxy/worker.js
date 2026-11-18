@@ -16,6 +16,7 @@ const ALLOWED_HOSTS = [
   /^a-v2\.sndcdn\.com$/, // скрипты сайта, оттуда берётся client_id
   /^api\.audiomack\.com$/,
   /^zvuk\.com$/, // Звук: гостевой токен и GraphQL API
+  /^api\.genius\.com$/, // Genius: ссылка на страницу текста
 ];
 
 // Какие заголовки клиента пересылаем дальше.

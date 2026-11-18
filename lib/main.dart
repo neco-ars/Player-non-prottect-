@@ -11,7 +11,11 @@ import 'ui/widgets.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (isDesktop) JustAudioMediaKit.ensureInitialized(windows: true, linux: true);
+  if (isDesktop) {
+    // следующий трек плейлиста mpv готовит заранее — переходы без пауз
+    JustAudioMediaKit.prefetchPlaylist = true;
+    JustAudioMediaKit.ensureInitialized(windows: true, linux: true);
+  }
 
   app = await AppServices.init();
   // свайпы по обложке и мини-плееру

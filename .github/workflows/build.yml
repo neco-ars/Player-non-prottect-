@@ -12,6 +12,15 @@ permissions:
   pages: write # публикация веб-версии
   id-token: write
 
+# Ключи приложения вшиваются при сборке из секретов репозитория (в коде их нет).
+env:
+  KEYS: >-
+    --dart-define=YOUTUBE_KEY=${{ secrets.YOUTUBE_KEY }}
+    --dart-define=GENIUS_TOKEN=${{ secrets.GENIUS_TOKEN }}
+    --dart-define=AUDIOMACK_KEY=${{ secrets.AUDIOMACK_KEY }}
+    --dart-define=AUDIOMACK_SECRET=${{ secrets.AUDIOMACK_SECRET }}
+    --dart-define=PROXY_URL=${{ vars.PROXY_URL }}
+
 # Новая отправка в ту же ветку отменяет устаревшую сборку, а не ждёт её в очереди.
 concurrency:
   group: build-${{ github.ref }}
@@ -37,7 +46,7 @@ jobs:
       - run: >
           flutter build web --release
           --base-href "/${{ github.event.repository.name }}/"
-          --dart-define=PROXY_URL=${{ vars.PROXY_URL }}
+          $KEYS
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -55,7 +64,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter build ios --release --no-codesign
+      - run: flutter build ios --release --no-codesign $KEYS
       # .ipa — это zip с папкой Payload/Runner.app. Подпись ставит Sideloadly/AltStore при установке.
       - name: Упаковать .ipa
         run: |
@@ -82,7 +91,7 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter test
-      - run: flutter build apk --release
+      - run: flutter build apk --release $KEYS
       - run: mv build/app/outputs/flutter-apk/app-release.apk music_player-android.apk
       - uses: actions/upload-artifact@v4
         with:
@@ -99,7 +108,9 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: flutter build windows --release
+      # bash: список ключей должен разбиться на отдельные аргументы (в PowerShell он пришёл бы одной строкой)
+      - run: flutter build windows --release $KEYS
+        shell: bash
       - run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath music_player-windows.zip
         shell: pwsh
       - uses: actions/upload-artifact@v4
