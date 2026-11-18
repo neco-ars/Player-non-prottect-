@@ -161,7 +161,7 @@ class VariantChip extends StatelessWidget {
     final label = [
       sourceNames[track.source] ?? track.source,
       fmtDuration(track.duration),
-      if (track.previewOnly) 'превью',
+      if (track.extra['drm'] == true) 'защищён' else if (track.previewOnly) 'превью',
     ].where((s) => s.isNotEmpty).join(' · ');
     return Material(
       color: playing ? color.withValues(alpha: 0.25) : AppColors.card,

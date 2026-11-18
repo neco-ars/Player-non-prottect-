@@ -82,6 +82,11 @@ class SoundCloudSource extends MusicSource {
     final user = (j['user'] as Map?) ?? {};
     final created = j['release_date'] ?? j['created_at'];
     final title = (j['title'] as String?) ?? '';
+    // SoundCloud заранее сообщает форматы: если открытых (progressive / обычный hls) нет — трек под DRM
+    final drmOnly = !transcodings.whereType<Map>().any((t) {
+      final protocol = '${(t['format'] as Map?)?['protocol']}';
+      return protocol == 'progressive' || protocol == 'hls';
+    });
     return Track(
       source: id,
       id: '${j['id']}',
@@ -93,8 +98,11 @@ class SoundCloudSource extends MusicSource {
       coverUrl: ((j['artwork_url'] ?? user['avatar_url']) as String?)?.replaceAll('-large', '-t300x300'),
       duration: Duration(milliseconds: (j['duration'] as num?)?.toInt() ?? 0),
       explicit: meta['explicit'] == true || Track.explicitTags.hasMatch(title),
-      previewOnly: j['policy'] == 'SNIP', // треки Go+, доступен только фрагмент
+      // треки Go+ (только фрагмент) и треки только с защищёнными (DRM) потоками
+      // считаем «неполными»: по нажатию на песню выберется версия с другой площадки
+      previewOnly: j['policy'] == 'SNIP' || drmOnly,
       extra: {
+        if (drmOnly) 'drm': true,
         'transcodings': transcodings,
         'auth': j['track_authorization'],
         'url': j['permalink_url'],
@@ -286,5 +294,6 @@ class _NoPlayableStream implements Exception {
   final String formats;
   const _NoPlayableStream(this.formats);
   @override
-  String toString() => 'SoundCloud отдаёт этот трек только в защищённом виде ($formats)';
+  String toString() => 'SoundCloud закрыл этот трек защитой (DRM) — он играет только в их приложении. '
+      'Войди в Яндекс или Звук в настройках: если песня есть там, плеер возьмёт её оттуда';
 }
