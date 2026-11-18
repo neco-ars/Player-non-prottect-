@@ -4,6 +4,7 @@ import '../services/app_services.dart';
 import '../services/library.dart';
 import '../services/recommendations.dart';
 import 'library_page.dart';
+import 'source_filter.dart';
 import 'settings_page.dart';
 import 'theme.dart';
 import 'track_menu.dart';
@@ -17,6 +18,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  String? _source; // показывать подборки только одной площадки (null — все)
+
   late Future<List<RecSection>> _future = app.recs.forYou();
 
   Future<void> _refresh() async {
@@ -60,6 +63,12 @@ class _HomePageState extends State<HomePage> {
               ),
               SliverToBoxAdapter(child: _QuickGrid()),
               SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: SourceFilterBar(value: _source, onChanged: (v) => setState(() => _source = v)),
+                ),
+              ),
+              SliverToBoxAdapter(
                 child: FutureBuilder<List<RecSection>>(
                   future: _future,
                   builder: (context, snap) {
@@ -80,7 +89,21 @@ class _HomePageState extends State<HomePage> {
                         ),
                       );
                     }
-                    return Column(children: [for (final s in sections) _Carousel(section: s)]);
+                    final shown = [for (final s in sections) _Carousel(section: s, source: _source)];
+                    final anyTracks = sections.any((s) =>
+                        s.tracks.any((t) => (_source == null || t.source == _source) && app.library.allowedInRecs(t)));
+                    if (!anyTracks) {
+                      return Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Text(
+                          'В подборках пока нет треков с площадки ${sourceNames[_source] ?? _source}. '
+                          'Послушай что-нибудь оттуда — подборки появятся.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: AppColors.textDim),
+                        ),
+                      );
+                    }
+                    return Column(children: shown);
                   },
                 ),
               ),
@@ -165,12 +188,15 @@ class _QuickTile extends StatelessWidget {
 
 class _Carousel extends StatelessWidget {
   final RecSection section;
-  const _Carousel({required this.section});
+  final String? source;
+  const _Carousel({required this.section, this.source});
 
   @override
   Widget build(BuildContext context) {
     // «не нравится» пропадает сразу, не дожидаясь обновления главной
-    final tracks = section.tracks.where(app.library.allowedInRecs).toList();
+    final tracks = section.tracks
+        .where((t) => (source == null || t.source == source) && app.library.allowedInRecs(t))
+        .toList();
     if (tracks.isEmpty) return const SizedBox.shrink();
     final isRadio = section.title != 'Недавно слушал';
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

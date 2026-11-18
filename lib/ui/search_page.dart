@@ -10,6 +10,7 @@ import '../sources/source.dart';
 import 'nav.dart';
 import '../sources/net.dart';
 import 'settings_page.dart';
+import 'source_filter.dart';
 import 'theme.dart';
 import 'track_menu.dart';
 import 'widgets.dart';
@@ -45,6 +46,7 @@ class _SearchPageState extends State<SearchPage> {
   String? _searched; // запрос, по которому показаны результаты текущей вкладки
   bool _loading = false;
   bool _explicitOnly = false;
+  String? _source; // null — все площадки
   List<String> _pending = const [];
   Map<String, String> _errors = const {};
 
@@ -89,6 +91,12 @@ class _SearchPageState extends State<SearchPage> {
     };
   }
 
+  /// Какие площадки предлагать в фильтре: для альбомов и исполнителей — только те, у кого они есть.
+  Iterable<String> get _sourcesForMode => [
+        for (final s in app.search.sources)
+          if (s.isConfigured && (_mode == _Mode.tracks || s.hasCatalog)) s.id
+      ];
+
   void _setMode(_Mode m) {
     if (m == _mode) return;
     setState(() => _mode = m);
@@ -118,7 +126,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   List<TrackGroup> get _groups {
-    final g = _result?.groups ?? [];
+    final g = filterGroups(_result?.groups ?? [], _source);
     return _explicitOnly ? g.where((x) => x.anyExplicit).toList() : g;
   }
 
@@ -212,6 +220,16 @@ class _SearchPageState extends State<SearchPage> {
                 ),
             ]),
           ),
+          // площадки: все или одна
+          if (_hasResults || _searched != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SourceFilterBar(
+                value: _source,
+                onChanged: (v) => setState(() => _source = v),
+                only: _sourcesForMode,
+              ),
+            ),
           if (_loading) ...[
             const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator(minHeight: 2)),
             if (_pending.isNotEmpty)
@@ -259,7 +277,7 @@ class _SearchPageState extends State<SearchPage> {
       );
 
   Widget _albumResults() {
-    final items = _albums?.items ?? const <AlbumRef>[];
+    final items = [for (final a in _albums?.items ?? const <AlbumRef>[]) if (_source == null || a.source == _source) a];
     final list = _explicitOnly ? items.where((a) => a.explicit).toList() : items;
     if (list.isEmpty) {
       if (_loading) return const SizedBox.shrink();
@@ -303,7 +321,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _artistResults() {
-    final list = _artists?.items ?? const <ArtistRef>[];
+    final list = [for (final a in _artists?.items ?? const <ArtistRef>[]) if (_source == null || a.source == _source) a];
     if (list.isEmpty) {
       if (_loading) return const SizedBox.shrink();
       return _empty(_errors.isNotEmpty ? 'Ничего не найдено — площадки ответили ошибкой (см. выше).' : 'Исполнителей не найдено.');
@@ -349,6 +367,8 @@ class _SearchPageState extends State<SearchPage> {
           child: Text(
             noSources
                 ? 'Ничего не искали: ни одна площадка не подключена.\nОткрой ⚙ Настройки на главной.'
+                : _source != null && (_result?.groups.isNotEmpty ?? false)
+                    ? 'На площадке ${sourceNames[_source] ?? _source} ничего не нашлось. Выбери «Все».'
                 : _explicitOnly && (_result?.groups.isNotEmpty ?? false)
                     ? 'Explicit-версий не нашлось. Выключи фильтр «E», чтобы увидеть все.'
                     : (_result?.errors.isNotEmpty ?? false)
