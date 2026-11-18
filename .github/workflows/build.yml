@@ -36,7 +36,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -47,18 +47,23 @@ jobs:
           flutter build web --release
           --base-href "/${{ github.event.repository.name }}/"
           $KEYS
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: build/web
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   ios:
     name: iPhone (.ipa без подписи)
+    # Только при выпуске версии и необязательно: облачные Mac у GitHub бывают заняты часами,
+    # а для iPhone есть веб-версия. Если Mac не нашёлся — релиз выйдет без .ipa.
+    if: startsWith(github.ref, 'refs/tags/v')
+    continue-on-error: true
+    timeout-minutes: 60
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -71,7 +76,7 @@ jobs:
           mkdir -p Payload
           cp -R build/ios/iphoneos/Runner.app Payload/
           zip -qry music_player-ios.ipa Payload
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ios
           path: music_player-ios.ipa
@@ -80,8 +85,8 @@ jobs:
     name: Android (.apk)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: microsoft
           java-version: '21'
@@ -93,7 +98,7 @@ jobs:
       - run: flutter test
       - run: flutter build apk --release $KEYS
       - run: mv build/app/outputs/flutter-apk/app-release.apk music_player-android.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: music_player-android.apk
@@ -102,7 +107,7 @@ jobs:
     name: Windows (.zip)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -113,21 +118,22 @@ jobs:
         shell: bash
       - run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath music_player-windows.zip
         shell: pwsh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: music_player-windows.zip
 
   release:
     name: Релиз
-    if: startsWith(github.ref, 'refs/tags/v')
+    # ждём и iPhone, но выпускаем релиз, даже если он не собрался
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.android.result == 'success' && needs.windows.result == 'success' }}
     needs: [ios, android, windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             music_player-ios.ipa
