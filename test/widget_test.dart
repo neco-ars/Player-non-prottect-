@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:music_player/models/track.dart';
 import 'package:music_player/services/catalog.dart';
 import 'package:music_player/services/equalizer.dart';
+import 'package:music_player/services/importer.dart';
 import 'package:music_player/services/keys.dart';
 import 'package:music_player/services/library.dart';
 import 'package:music_player/services/lyrics.dart';
@@ -114,6 +115,18 @@ void main() {
   test('«не нравится» по исполнителю: соавторы не мешают узнать того же исполнителя', () {
     expect(Library.artistKey('LAZZY2WICE, Kai Angel'), Library.artistKey('lazzy2wice'));
     expect(Library.artistKey('LAZZY2WICE feat. X'), 'lazzy2wice');
+  });
+
+  test('импорт: строки «Исполнитель — Песня» с нумерацией и длительностью', () {
+    final l = PlaylistImporter.parse(['1. LAZZY2WICE — Nuke', '02) Kai Angel - Hurricane (3:12)', '• Jay-Z – 99 Problems',
+        'Просто название', ''].join('\n'));
+    expect(l.map((x) => '${x.artist}|${x.title}'),
+        ['LAZZY2WICE|Nuke', 'Kai Angel|Hurricane', 'Jay-Z|99 Problems', '|Просто название']);
+  });
+
+  test('импорт: таблица CSV с колонками названия и исполнителя', () {
+    final l = PlaylistImporter.parse(['Track name,Artist name,Album', '"Nuke, pt. 2",LAZZY2WICE,X', 'Song,Artist,Y'].join('\n'));
+    expect(l.map((x) => '${x.artist}|${x.title}'), ['LAZZY2WICE|Nuke, pt. 2', 'Artist|Song']);
   });
 
   test('свой ключ из настроек важнее встроенного', () {

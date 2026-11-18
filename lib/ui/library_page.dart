@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/track.dart';
 import '../services/app_services.dart';
 import '../services/library.dart';
+import 'import_page.dart';
 import 'theme.dart';
 import 'track_menu.dart';
 import 'widgets.dart';
@@ -21,6 +22,11 @@ class LibraryPage extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Моя медиатека'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.playlist_add, size: 28),
+            tooltip: 'Импорт плейлиста из текста',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ImportPage())),
+          ),
           IconButton(
             icon: const Icon(Icons.add, size: 28),
             tooltip: 'Новый плейлист',
