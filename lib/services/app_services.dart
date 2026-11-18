@@ -1,6 +1,5 @@
 import '../models/track.dart';
 import '../sources/audiomack.dart';
-import '../sources/audius.dart';
 import '../sources/local.dart';
 import '../sources/net.dart';
 import '../sources/soundcloud.dart';
@@ -24,7 +23,6 @@ class AppServices {
   final Library library;
   final YandexSource yandex;
   final YouTubeSource youtube;
-  final AudiusSource audius;
   final AudiomackSource audiomack;
   final ZvukSource zvuk;
   final LocalSource local;
@@ -35,7 +33,7 @@ class AppServices {
   final LyricsService lyrics = LyricsService();
   final GeniusService genius;
 
-  AppServices._(this.settings, this.library, this.yandex, this.youtube, this.audius, this.audiomack, this.zvuk, this.local,
+  AppServices._(this.settings, this.library, this.yandex, this.youtube, this.audiomack, this.zvuk, this.local,
       this.search, this.recs, this.player, this.catalog, this.genius);
 
   static Future<AppServices> init() async {
@@ -44,16 +42,15 @@ class AppServices {
     final library = await Library.load();
     final yandex = YandexSource(settings.yandexToken);
     final youtube = YouTubeSource(AppKeys.pick(settings.youtubeKey, AppKeys.youtube));
-    final audius = AudiusSource();
     final local = LocalSource();
     await local.load();
     final audiomack = AudiomackSource(
         consumerKey: AppKeys.pick(settings.audiomackKey, AppKeys.audiomackKey),
         consumerSecret: AppKeys.pick(settings.audiomackSecret, AppKeys.audiomackSecret));
     final zvuk = ZvukSource(settings.zvukToken);
-    final search = SearchService([local, yandex, zvuk, SoundCloudSource(), audiomack, audius, youtube]);
+    final search = SearchService([local, yandex, zvuk, SoundCloudSource(), audiomack, youtube]);
     final catalog = CatalogService(search);
-    final recs = Recommendations(search, library, yandex, audius, catalog);
+    final recs = Recommendations(search, library, yandex, catalog);
     final equalizer = EqualizerService();
     await equalizer.load();
     final player = PlayerService(search, library, recs, equalizer);
@@ -61,7 +58,7 @@ class AppServices {
     TrackGroup.preferExplicitDefault(settings.preferExplicit);
     player.findOriginal = settings.findOriginal;
     return AppServices._(
-        settings, library, yandex, youtube, audius, audiomack, zvuk, local, search, recs, player, catalog, GeniusService(AppKeys.pick(settings.geniusToken, AppKeys.genius)));
+        settings, library, yandex, youtube, audiomack, zvuk, local, search, recs, player, catalog, GeniusService(AppKeys.pick(settings.geniusToken, AppKeys.genius)));
   }
 }
 

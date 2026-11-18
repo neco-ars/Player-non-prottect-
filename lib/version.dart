@@ -1,2 +1,2 @@
 /// Версия приложения. Меняй вместе с `version:` в pubspec.yaml.
-const appVersion = '0.12.1';
+const appVersion = '0.13.0';

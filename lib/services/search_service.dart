@@ -27,7 +27,10 @@ class SearchService {
   final Map<String, (DateTime, SearchResult)> _cache = {};
   static const _cacheTtl = Duration(minutes: 10);
 
-  MusicSource sourceOf(Track t) => sources.firstWhere((s) => s.id == t.source);
+  /// Площадка трека. Если её больше нет в приложении (например, удалённый Audius у старых треков
+  /// в истории и плейлистах), — заглушка: плеер поищет ту же песню на других площадках.
+  MusicSource sourceOf(Track t) =>
+      sources.where((s) => s.id == t.source).firstOrNull ?? RemovedSource(t.source);
 
   /// Поиск с результатами по мере ответа площадок: каждое событие — уже объединённая выдача
   /// от тех, кто ответил. Последнее событие (pending пуст) — окончательный результат.
@@ -86,4 +89,20 @@ class SearchService {
     }
     return groups.values.map((v) => TrackGroup(v)).toList();
   }
+}
+
+/// Площадка, которой больше нет в приложении.
+class RemovedSource extends MusicSource {
+  @override
+  final String id;
+  RemovedSource(this.id);
+  @override
+  String get name => id.isEmpty ? id : '${id[0].toUpperCase()}${id.substring(1)}';
+  @override
+  bool get isConfigured => false;
+  @override
+  Future<List<Track>> search(String query) async => [];
+  @override
+  Future<StreamInfo> streamUrl(Track track) async =>
+      throw Exception('площадки $name больше нет в приложении');
 }

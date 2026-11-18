@@ -1,5 +1,4 @@
 import '../models/track.dart';
-import '../sources/audius.dart';
 import '../sources/yandex.dart';
 import 'catalog.dart';
 import 'library.dart';
@@ -18,11 +17,10 @@ class Recommendations {
   final SearchService search;
   final Library library;
   final YandexSource yandex;
-  final AudiusSource audius;
   final CatalogService catalog;
-  Recommendations(this.search, this.library, this.yandex, this.audius, this.catalog);
+  Recommendations(this.search, this.library, this.yandex, this.catalog);
 
-  /// Похожие на трек по версии площадок. Если площадка трека не умеет (Звук, Audius, YouTube),
+  /// Похожие на трек по версии площадок. Если площадка трека не умеет (Звук, YouTube, Audiomack),
   /// находим ту же песню там, где умеют (Яндекс, SoundCloud), и берём похожие оттуда.
   Future<List<Track>> similar(Track t) async {
     final own = await _safe(() => search.sourceOf(t).similar(t));
@@ -38,31 +36,22 @@ class Recommendations {
     return [];
   }
 
-  /// Порция радио по треку. Смесь из трёх источников, поэтому радио работает с любой песни:
-  /// похожие от площадок + другие треки исполнителя + тренды жанра.
+  /// Порция радио по треку. Смесь, поэтому радио работает с любой песни:
+  /// похожие от площадок + другие треки исполнителя (страница исполнителя, а если её нет — поиск по имени).
   Future<List<Track>> radioBatch(Track seed, Set<String> exclude) async {
-    final results = await Future.wait([
-      similar(seed),
-      _artistTracks(seed),
-      _safe(() => audius.trending(genre: _audiusGenre(seed.genre))),
-    ]);
-    final similarList = results[0];
-    final artistList = results[1]..shuffle();
-    final genreList = results[2]..shuffle();
+    final results = await Future.wait([similar(seed), _artistTracks(seed)]);
+    final sim = results[0].take(15).toList();
+    // если площадки не дали «похожих», больше берём у исполнителя
+    final art = (results[1]..shuffle()).take(sim.isEmpty ? 12 : 5).toList();
 
-    // если площадки не дали «похожих», больше берём у исполнителя и из жанра
+    // чередуем: два похожих, один исполнителя
     final mix = <Track>[];
-    final sim = similarList.take(15).toList();
-    final art = artistList.take(sim.isEmpty ? 8 : 4).toList();
-    final gen = genreList.take(sim.isEmpty ? 8 : 4).toList();
-    // чередуем: два похожих, один исполнителя, один из жанра
-    var i = 0, a = 0, g = 0;
-    while (i < sim.length || a < art.length || g < gen.length) {
+    var i = 0, a = 0;
+    while (i < sim.length || a < art.length) {
       for (var k = 0; k < 2 && i < sim.length; k++) {
         mix.add(sim[i++]);
       }
       if (a < art.length) mix.add(art[a++]);
-      if (g < gen.length) mix.add(gen[g++]);
     }
 
     final seen = <String>{...exclude, seed.key, seed.matchKey};
@@ -76,24 +65,20 @@ class Recommendations {
   Future<List<Track>> _artistTracks(Track seed) async {
     try {
       final a = await catalog.artistFor(seed).timeout(const Duration(seconds: 12));
-      return a?.topTracks.toList() ?? [];
+      if (a != null && a.topTracks.isNotEmpty) return a.topTracks.toList();
+    } catch (_) {}
+    // страницы исполнителя нет — ищем его треки по имени на всех площадках (без YouTube)
+    final name = Library.artistKey(seed.artist);
+    if (name.isEmpty) return [];
+    try {
+      final r = await search.search(seed.artist.split(',').first.trim(), includeVideo: false);
+      return [
+        for (final g in r.groups)
+          if (Library.artistKey(g.main.artist) == name) g.main
+      ];
     } catch (_) {
       return [];
     }
-  }
-
-  /// Жанры площадок → жанры Audius (там свой список).
-  static String? _audiusGenre(String? g) {
-    final s = g?.toLowerCase() ?? '';
-    if (s.isEmpty) return null;
-    if (s.contains('rap') || s.contains('hip') || s.contains('рэп') || s.contains('хип')) return 'Hip-Hop/Rap';
-    if (s.contains('phonk') || s.contains('trap')) return 'Trap';
-    if (s.contains('electr') || s.contains('house') || s.contains('techno')) return 'Electronic';
-    if (s.contains('rock') || s.contains('рок')) return 'Rock';
-    if (s.contains('pop') || s.contains('поп')) return 'Pop';
-    if (s.contains('r&b') || s.contains('rnb') || s.contains('soul')) return 'R&B/Soul';
-    if (s.contains('lofi') || s.contains('lo-fi')) return 'Lo-Fi';
-    return null;
   }
 
   List<RecSection>? _cache;
@@ -122,9 +107,6 @@ class Recommendations {
   Future<List<RecSection>> _buildForYou() async {
     final sections = <RecSection>[];
     final futures = <Future<void>>[];
-    // тренды запускаем сразу, параллельно с остальным
-    final trendingF = _safe(() => audius.trending());
-    final rapF = _safe(() => audius.trending(genre: 'Hip-Hop/Rap'));
 
     if (yandex.isConfigured) {
       futures.add(_safe(yandex.myWave).then((w) {
@@ -159,11 +141,6 @@ class Recommendations {
     if (library.history.isNotEmpty) {
       sections.add(RecSection('Недавно слушал', library.history.take(20).toList()));
     }
-    // тренды недели на Audius — всегда, чтобы главная не была пустой
-    final trending = await trendingF;
-    if (trending.isNotEmpty) sections.add(RecSection('В тренде', trending.take(20).toList(), subtitle: 'Audius'));
-    final rap = await rapF;
-    if (rap.isNotEmpty) sections.add(RecSection('Рэп в тренде', rap.take(20).toList(), subtitle: 'Audius'));
     return sections;
   }
 
