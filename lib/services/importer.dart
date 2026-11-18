@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import '../models/track.dart';
 import 'catalog.dart';
@@ -23,6 +24,39 @@ class ImportItem {
 
 /// Импорт плейлиста из текста: «Исполнитель — Песня» по строке, или таблица CSV.
 class PlaylistImporter {
+  /// Текст файла: UTF-8 (с BOM или без), UTF-16 (как сохраняет Блокнот) или старая Windows-1251.
+  static String decodeFile(List<int> bytes) {
+    if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) return _utf16(bytes.sublist(2), little: true);
+    if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) return _utf16(bytes.sublist(2), little: false);
+    var b = bytes;
+    if (b.length >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF) b = b.sublist(3);
+    try {
+      return utf8.decode(b);
+    } on FormatException {
+      return _cp1251(b); // не UTF-8 — значит, скорее всего, Windows-1251
+    }
+  }
+
+  static String _utf16(List<int> b, {required bool little}) {
+    final units = <int>[
+      for (var i = 0; i + 1 < b.length; i += 2) little ? b[i] | (b[i + 1] << 8) : (b[i] << 8) | b[i + 1]
+    ];
+    return String.fromCharCodes(units);
+  }
+
+  /// Windows-1251: А–я в 0xC0–0xFF, Ё/ё и самые частые знаки; остальное — как есть.
+  static String _cp1251(List<int> b) {
+    const extra = {
+      0xA8: 0x0401, 0xB8: 0x0451, // Ё ё
+      0x96: 0x2013, 0x97: 0x2014, // – —
+      0xAB: 0x00AB, 0xBB: 0x00BB, // « »
+      0x93: 0x201C, 0x94: 0x201D, 0x85: 0x2026, 0xB9: 0x2116, // “ ” … №
+    };
+    return String.fromCharCodes([
+      for (final c in b) c >= 0xC0 ? 0x0410 + (c - 0xC0) : (extra[c] ?? c)
+    ]);
+  }
+
   final SearchService search;
   PlaylistImporter(this.search);
 

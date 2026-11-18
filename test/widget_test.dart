@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:music_player/models/track.dart';
@@ -122,6 +124,20 @@ void main() {
         'Просто название', ''].join('\n'));
     expect(l.map((x) => '${x.artist}|${x.title}'),
         ['LAZZY2WICE|Nuke', 'Kai Angel|Hurricane', 'Jay-Z|99 Problems', '|Просто название']);
+  });
+
+  test('импорт из файла: UTF-8 с BOM, UTF-16 и Windows-1251', () {
+    const text = 'Ёлка — Привет';
+    final utf8Bom = [0xEF, 0xBB, 0xBF, ...utf8.encode(text)];
+    final utf16le = [0xFF, 0xFE, for (final c in text.codeUnits) ...[c & 0xFF, c >> 8]];
+    // Windows-1251: Ё=0xA8, А..я=0xC0..0xFF, «—»=0x97
+    final cp1251 = [
+      for (final c in text.runes)
+        c == 0x0401 ? 0xA8 : (c == 0x2014 ? 0x97 : (c >= 0x0410 && c <= 0x044F ? 0xC0 + (c - 0x0410) : c))
+    ];
+    expect(PlaylistImporter.decodeFile(utf8Bom), text);
+    expect(PlaylistImporter.decodeFile(utf16le), text);
+    expect(PlaylistImporter.decodeFile(cp1251), text);
   });
 
   test('импорт: таблица CSV с колонками названия и исполнителя', () {

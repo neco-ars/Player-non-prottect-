@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -52,6 +53,32 @@ class _ImportPageState extends State<ImportPage> {
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PlaylistPage(playlist: p)));
   }
 
+  /// Загрузить список из файла .txt или .csv; название плейлиста — по имени файла.
+  Future<void> _openFile() async {
+    final files = await FilePicker.pickFiles(
+      dialogTitle: 'Файл со списком песен',
+      type: FileType.custom,
+      allowedExtensions: const ['txt', 'csv'],
+    );
+    if (files.isEmpty || !mounted) return;
+    final f = files.first;
+    try {
+      final text = PlaylistImporter.decodeFile(await f.readAsBytes());
+      setState(() {
+        _text.text = text;
+        if (_name.text.trim().isEmpty || _name.text == 'Импорт') {
+          _name.text = f.name.replaceAll(RegExp(r'\.(txt|csv)$', caseSensitive: false), '');
+        }
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Загружено из «${f.name}»: ${PlaylistImporter.parse(text).length} песен')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Не удалось прочитать файл: $e')));
+    }
+  }
+
   void _copyMissing() {
     final missing = [for (final i in _items!) if (i.status == ImportStatus.notFound) i.line.raw];
     Clipboard.setData(ClipboardData(text: missing.join('\n')));
@@ -98,6 +125,11 @@ class _ImportPageState extends State<ImportPage> {
         Row(children: [
           Text('Песен: $_parsed', style: const TextStyle(color: AppColors.textDim)),
           const Spacer(),
+          TextButton.icon(
+            icon: const Icon(Icons.file_open_outlined),
+            label: const Text('Файл .txt'),
+            onPressed: _openFile,
+          ),
           TextButton.icon(
             icon: const Icon(Icons.content_paste),
             label: const Text('Вставить'),
