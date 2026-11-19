@@ -27,7 +27,9 @@ class ZvukSource extends MusicSource {
   @override
   String get name => 'Звук';
   @override
-  bool get isConfigured => !Net.proxyMissing;
+  /// В веб-версии Звук недоступен: его защита от ботов отклоняет запросы с серверов Cloudflare
+  /// (через которые ходит сайт) — отвечает 400/418/500. В приложениях запросы идут напрямую и работают.
+  bool get isConfigured => !kIsWeb;
 
   // Поля трека и альбома — одинаковые во всех запросах.
   static const _trackFields = 'id title duration explicit artists { id title } release { id title date image { src } }';

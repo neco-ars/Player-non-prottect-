@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -113,58 +114,66 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         const Divider(height: 40),
         Row(children: [Expanded(child: Text('Звук', style: h)), _status(app.zvuk.isConfigured)]),
-        const SizedBox(height: 8),
-        const Text(
-          'Без входа Звук ищет, но вместо треков отдаёт 30-секундные фрагменты. Чтобы слушать целиком, '
-          'войди своим аккаунтом (подписка не обязательна; с подпиской — 320 кбит/с).',
-          style: TextStyle(color: AppColors.textDim),
-        ),
-        const SizedBox(height: 12),
-        if (inAppLoginSupported)
-          FilledButton.icon(
-            icon: const Icon(Icons.login),
-            label: Text(app.zvuk.userToken?.isNotEmpty == true ? 'Войти заново' : 'Войти в Звук'),
-            onPressed: () async {
-              final token = await loginZvuk(context);
-              if (token != null && mounted) await _saveZvuk(token);
-            },
+        if (kIsWeb)
+          const Text(
+            'В веб-версии Звук недоступен: его защита от ботов отклоняет запросы с серверов, через которые '
+            'работает сайт. Звук работает в приложениях для Android и Windows — там запросы идут напрямую.',
+            style: TextStyle(color: AppColors.textDim),
           )
         else ...[
-          // В браузере и на ПК встроенного входа нет: браузер не даёт читать вход на чужом сайте.
-          const Text('Вход в 3 шага:', style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.login),
-            label: const Text('1. Открыть zvuk.com и войти'),
-            onPressed: () => launchUrl(Uri.parse('https://zvuk.com/'), mode: LaunchMode.externalApplication),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.key),
-            label: const Text('2. Открыть страницу с токеном'),
-            onPressed: () =>
-                launchUrl(Uri.parse('https://zvuk.com/api/tiny/profile'), mode: LaunchMode.externalApplication),
-          ),
-          const SizedBox(height: 4),
           const Text(
-            'На этой странице выдели всё (Ctrl+A, на iPhone — «Выбрать всё»), скопируй и вставь ниже целиком — '
-            'токен приложение найдёт само.',
-            style: TextStyle(fontSize: 12, color: AppColors.textDim),
+            'Без входа Звук ищет, но вместо треков отдаёт 30-секундные фрагменты. Чтобы слушать целиком, '
+            'войди своим аккаунтом (подписка не обязательна; с подпиской — 320 кбит/с).',
+            style: TextStyle(color: AppColors.textDim),
           ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _zvuk,
-            maxLines: 2,
-            decoration: const InputDecoration(
-                labelText: '3. Вставь сюда текст страницы (или только токен)', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 8),
-          Row(children: [
-            FilledButton(onPressed: () => _saveZvuk(_zvuk.text), child: const Text('Сохранить и проверить')),
-            const SizedBox(width: 8),
-            if (app.zvuk.userToken?.isNotEmpty == true)
-              TextButton(onPressed: () => _saveZvuk(''), child: const Text('Выйти')),
-          ]),
+          const SizedBox(height: 12),
+          if (inAppLoginSupported)
+            FilledButton.icon(
+              icon: const Icon(Icons.login),
+              label: Text(app.zvuk.userToken?.isNotEmpty == true ? 'Войти заново' : 'Войти в Звук'),
+              onPressed: () async {
+                final token = await loginZvuk(context);
+                if (token != null && mounted) await _saveZvuk(token);
+              },
+            )
+          else ...[
+            // В браузере и на ПК встроенного входа нет: браузер не даёт читать вход на чужом сайте.
+            const Text('Вход в 3 шага:', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.login),
+              label: const Text('1. Открыть zvuk.com и войти'),
+              onPressed: () => launchUrl(Uri.parse('https://zvuk.com/'), mode: LaunchMode.externalApplication),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.key),
+              label: const Text('2. Открыть страницу с токеном'),
+              onPressed: () =>
+                  launchUrl(Uri.parse('https://zvuk.com/api/tiny/profile'), mode: LaunchMode.externalApplication),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'На этой странице выдели всё (Ctrl+A, на iPhone — «Выбрать всё»), скопируй и вставь ниже целиком — '
+              'токен приложение найдёт само.',
+              style: TextStyle(fontSize: 12, color: AppColors.textDim),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _zvuk,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                  labelText: '3. Вставь сюда текст страницы (или только токен)', border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 8),
+            Row(children: [
+              FilledButton(onPressed: () => _saveZvuk(_zvuk.text), child: const Text('Сохранить и проверить')),
+              const SizedBox(width: 8),
+              if (app.zvuk.userToken?.isNotEmpty == true)
+                TextButton(onPressed: () => _saveZvuk(''), child: const Text('Выйти')),
+            ]),
+          ],
         ],
         const Divider(height: 40),
         Text('SoundCloud', style: h),

@@ -275,8 +275,8 @@ void main() {
     });
 
     test('отчёт при неудаче называет каждую площадку', () async {
-      final off = FakeSource('soundcloud', configured: false, albums: {'x': AlbumInfo(const AlbumRef(source: 's', id: 'x', title: 't', artist: 'a'), const [])});
-      final broken = FakeSource('zvuk', error: Exception('сбой'), albums: {'y': AlbumInfo(const AlbumRef(source: 'z', id: 'y', title: 't', artist: 'a'), const [])});
+      final off = FakeSource('soundcloud', configured: false, albums: {'x': const AlbumInfo(AlbumRef(source: 's', id: 'x', title: 't', artist: 'a'), [])});
+      final broken = FakeSource('zvuk', error: Exception('сбой'), albums: {'y': const AlbumInfo(AlbumRef(source: 'z', id: 'y', title: 't', artist: 'a'), [])});
       final c = CatalogService(SearchService([off, broken]));
       expect(await c.albumFor(t('youtube', '1', 'A', 'B')), isNull);
       expect(c.lastReport, contains('не подключён'));
@@ -284,7 +284,7 @@ void main() {
     });
 
     test('исполнитель: близкое имя подходит, совсем другое — нет', () async {
-      final info = ArtistInfo(const ArtistRef(source: 'zvuk', id: 'a1', name: 'LAZZY2WICE'));
+      const info = ArtistInfo(ArtistRef(source: 'zvuk', id: 'a1', name: 'LAZZY2WICE'));
       ArtistRef ref(String n) => ArtistRef(source: 'zvuk', id: 'a1', name: n);
       final close = FakeSource('zvuk', artists: {'a1': info}, artistResults: [ref('LAZZY 2WICE')]);
       expect(await CatalogService(SearchService([close])).artistByName('LAZZY2WICE'), isNotNull);
