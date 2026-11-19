@@ -35,7 +35,8 @@ class Net {
   static String describe(Object e) {
     final s = '$e';
     // в браузере так выглядит отказ прокси (старая версия worker.js или чужой адрес сайта)
-    if (kIsWeb && s.contains('Failed to fetch')) {
+    // Chrome: «Failed to fetch», Safari (iPhone): «Load failed», Firefox: «NetworkError»
+    if (kIsWeb && (s.contains('Failed to fetch') || s.contains('Load failed') || s.contains('NetworkError'))) {
       return 'прокси не пропустил запрос — обнови worker.js на Cloudflare (см. proxy/README.md) '
           'и открывай сайт по адресу из ALLOWED_ORIGIN';
     }
