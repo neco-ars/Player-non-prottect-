@@ -129,6 +129,32 @@ query getStream($ids: [ID!]!) {
     throw Exception('Звук: доступ запрещён');
   }
 
+  /// Токен из вставленного текста: можно вставить сам токен или всю страницу
+  /// zvuk.com/api/tiny/profile целиком — найдём поле "token" сами.
+  static String extractToken(String pasted) {
+    final s = pasted.trim();
+    final m = RegExp(r'"token"\s*:\s*"([^"]+)"').firstMatch(s);
+    if (m != null) return m.group(1)!;
+    return s.replaceAll(RegExp(r'^["\s]+|["\s]+$'), '');
+  }
+
+  /// Проверить токен: вошёл ли человек в аккаунт или это гостевой доступ.
+  /// Возвращает имя (если Звук его отдал) или пустую строку; null — гостевой токен.
+  Future<String?> checkLogin(String token) async {
+    final res = await Net.client.get(Net.wrap(Uri.parse(_profile)), headers: {
+      'X-Auth-Token': token,
+      'Accept': 'application/json',
+      if (!kIsWeb) 'User-Agent': userAgent,
+    });
+    if (res.statusCode == 401 || res.statusCode == 403) throw Exception('Звук: токен не подошёл');
+    if (res.statusCode != 200) throw Exception('Звук: HTTP ${res.statusCode}');
+    final r = ((jsonDecode(utf8.decode(res.bodyBytes)) as Map)['result'] as Map?) ?? {};
+    final profile = (r['profile'] as Map?) ?? {};
+    final anonymous = r['is_anonymous'] == true || profile['is_anonymous'] == true;
+    if (anonymous) return null;
+    return '${profile['name'] ?? r['name'] ?? ''}'.trim();
+  }
+
   static String? coverUrl(String? src, {int size = 300}) {
     if (src == null || src.isEmpty) return null;
     final full = src.startsWith('/') ? 'https://zvuk.com$src' : src;

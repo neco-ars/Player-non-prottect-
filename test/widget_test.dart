@@ -74,6 +74,13 @@ void main() {
     expect(ZvukSource.coverUrl(null), isNull);
   });
 
+  test('токен Звука находится во вставленной странице профиля целиком', () {
+    const page = '{"result":{"profile":{"name":"Fembi"},"token":"abc123XYZ","is_anonymous":false}}';
+    expect(ZvukSource.extractToken(page), 'abc123XYZ');
+    expect(ZvukSource.extractToken('  "abc123XYZ"  '), 'abc123XYZ');
+    expect(ZvukSource.extractToken(''), '');
+  });
+
   test('сетевые сбои распознаются как временные', () {
     expect(Net.isTransient(Exception('HandshakeException: Connection terminated during handshake')), true);
     expect(Net.isTransient(Exception('Звук: токен не подошёл')), false);
