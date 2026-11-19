@@ -114,10 +114,10 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         const Divider(height: 40),
         Row(children: [Expanded(child: Text('Звук', style: h)), _status(app.zvuk.isConfigured)]),
-        if (kIsWeb)
+        if (kIsWeb && !ZvukSource.webAvailable)
           const Text(
-            'В веб-версии Звук недоступен: его защита от ботов отклоняет запросы с серверов, через которые '
-            'работает сайт. Звук работает в приложениях для Android и Windows — там запросы идут напрямую.',
+            'В веб-версии Звук работает только через свой прокси на сервере в России (proxy-vps): '
+            'с серверов Cloudflare Звук отклоняет запросы. В приложениях для Android и Windows он работает всегда.',
             style: TextStyle(color: AppColors.textDim),
           )
         else ...[
