@@ -58,10 +58,17 @@ class SearchService {
     }
     for (var i = 0; i < active.length; i++) {
       final s = active[i];
-      s.search(query).timeout(timeout).then((r) => lists[i] = r, onError: (Object e) {
-        errors[s.name] = Net.describe(e);
-        lists[i] = const [];
-      }).whenComplete(emit);
+      // Ошибка одной площадки не должна ронять поиск: ловим её здесь и показываем в списке ошибок.
+      // (Раньше обработчик ошибки в .then сам бросал исключение, и поиск зависал на «Ещё ищем».)
+      () async {
+        try {
+          lists[i] = await s.search(query).timeout(timeout);
+        } catch (e) {
+          errors[s.name] = Net.describe(e);
+          lists[i] = const [];
+        }
+        emit();
+      }();
     }
     // окончательный результат без ошибок запоминаем
     return ctrl.stream.map((r) {

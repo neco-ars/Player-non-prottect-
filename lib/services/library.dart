@@ -12,6 +12,7 @@ import '../models/track.dart';
 abstract class _Store {
   Future<String?> read();
   Future<void> write(String data);
+  Future<void> backup(String data);
 }
 
 class _FileStore implements _Store {
@@ -25,6 +26,13 @@ class _FileStore implements _Store {
     await tmp.writeAsString(data, flush: true);
     await tmp.rename(file.path);
   }
+
+  @override
+  Future<void> backup(String data) async {
+    try {
+      await File('${file.path}.broken-${DateTime.now().millisecondsSinceEpoch}').writeAsString(data);
+    } catch (_) {}
+  }
 }
 
 class _WebStore implements _Store {
@@ -33,6 +41,9 @@ class _WebStore implements _Store {
   Future<String?> read() async => (await SharedPreferences.getInstance()).getString(_key);
   @override
   Future<void> write(String data) async => (await SharedPreferences.getInstance()).setString(_key, data);
+
+  @override
+  Future<void> backup(String data) async => (await SharedPreferences.getInstance()).setString('${_key}_broken', data);
 }
 
 class Playlist {
@@ -70,21 +81,38 @@ class Library extends ChangeNotifier {
       store = _FileStore(File('${dir.path}${Platform.pathSeparator}library.json'));
     }
     final lib = Library._(store);
+    String? raw;
     try {
-      final raw = await store.read();
+      raw = await store.read();
       if (raw != null) {
         final j = jsonDecode(raw) as Map<String, dynamic>;
-        lib.playlists.addAll((j['playlists'] as List? ?? []).map((p) => Playlist.fromJson(Map<String, dynamic>.from(p))));
-        lib.history.addAll((j['history'] as List? ?? []).map((t) => Track.fromJson(Map<String, dynamic>.from(t))));
-        lib.disliked.addAll((j['disliked'] as List? ?? []).map((t) => Track.fromJson(Map<String, dynamic>.from(t))));
+        // битые записи пропускаем по одной, а не теряем из-за них всю библиотеку
+        lib.playlists.addAll(_each(j['playlists'], (p) => Playlist.fromJson(Map<String, dynamic>.from(p))));
+        lib.history.addAll(_each(j['history'], (t) => Track.fromJson(Map<String, dynamic>.from(t))));
+        lib.disliked.addAll(_each(j['disliked'], (t) => Track.fromJson(Map<String, dynamic>.from(t))));
       }
     } catch (e) {
       debugPrint('library.json повреждён, начинаем заново: $e');
+      // сохраняем испорченный файл рядом, чтобы его можно было восстановить вручную
+      if (raw != null) await store.backup(raw);
     }
     if (!lib.playlists.any((p) => p.id == likedId)) {
       lib.playlists.insert(0, Playlist(id: likedId, name: 'Любимое'));
     }
     return lib;
+  }
+
+  /// Разобрать список, пропуская элементы, которые не читаются.
+  static List<T> _each<T>(dynamic list, T Function(dynamic) parse) {
+    final out = <T>[];
+    for (final x in (list as List?) ?? const []) {
+      try {
+        out.add(parse(x));
+      } catch (e) {
+        debugPrint('Пропущена битая запись библиотеки: $e');
+      }
+    }
+    return out;
   }
 
   Playlist get liked => playlists.firstWhere((p) => p.id == likedId);

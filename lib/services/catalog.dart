@@ -179,10 +179,13 @@ class CatalogService {
       }
       try {
         final found = await s.searchArtists(name).timeout(SearchService.timeout);
-        final match = found.where((a) => Track.normalize(a.name) == key).firstOrNull ??
+        // сравниваем и без пробелов: «LAZZY 2WICE» и «LAZZY2WICE» — один исполнитель
+        String compact(String x) => x.replaceAll(' ', '');
+        final ck = compact(key);
+        final match = found.where((a) => compact(Track.normalize(a.name)) == ck).firstOrNull ??
             found.where((a) {
-              final n = Track.normalize(a.name);
-              return n.isNotEmpty && (n.contains(key) || key.contains(n)) && (n.length - key.length).abs() <= 3;
+              final n = compact(Track.normalize(a.name));
+              return n.isNotEmpty && (n.contains(ck) || ck.contains(n)) && (n.length - ck.length).abs() <= 3;
             }).firstOrNull;
         if (match == null) {
           report?.add('${s.name}: исполнителя не нашлось');
@@ -228,10 +231,16 @@ class CatalogService {
     }
 
     for (var i = 0; i < sources.length; i++) {
-      fetch(sources[i]).timeout(SearchService.timeout).then((r) => lists[i] = r, onError: (Object e) {
-        errors[sources[i].name] = Net.describe(e);
-        lists[i] = <T>[];
-      }).whenComplete(emit);
+      // ошибка одной площадки не роняет поиск альбомов/исполнителей (см. SearchService)
+      () async {
+        try {
+          lists[i] = await fetch(sources[i]).timeout(SearchService.timeout);
+        } catch (e) {
+          errors[sources[i].name] = Net.describe(e);
+          lists[i] = <T>[];
+        }
+        emit();
+      }();
     }
     return ctrl.stream;
   }

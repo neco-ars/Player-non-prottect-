@@ -77,7 +77,8 @@ class PlaylistImporter {
 
   static ImportLine? _parseLine(String raw) {
     var s = raw
-        .replaceFirst(RegExp(r'^\s*(?:#?\d{1,4}[.)\]:]?\s+|[•·*\-–—]\s+)'), '') // нумерация и маркеры
+        // нумерация («1.», «01)», «3:», «#4») и маркеры; «50 Cent», «21 Savage» — не нумерация
+        .replaceFirst(RegExp(r'^\s*(?:#\d{1,4}[.):]?\s*|\d{1,4}[.)\]:]\s+|[•·*\-–—]\s+)'), '')
         .replaceFirst(RegExp(r'\s*[\(\[]?\d{1,2}:\d{2}(?::\d{2})?[\)\]]?\s*$'), '') // длительность в конце
         .replaceAll(RegExp(r'^["«“]+|["»”]+$'), '')
         .trim();

@@ -55,7 +55,10 @@ class Track {
     t = t.replaceAll(
         RegExp(r'\b(explicit|clean|dirty|uncensored|remaster(ed)?|official|video|audio|lyrics?|music)\b'), ' ');
     t = t.replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ');
-    return t.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final out = t.trim().replaceAll(RegExp(r'\s+'), ' ');
+    // название целиком в скобках («(Intro)») после очистки пустое — тогда сравниваем как есть,
+    // иначе все такие треки одного исполнителя считались бы одной песней
+    return out.isNotEmpty ? out : s.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   Map<String, dynamic> toJson() => {

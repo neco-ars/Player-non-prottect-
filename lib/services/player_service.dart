@@ -218,6 +218,8 @@ class PlayerService extends ChangeNotifier {
   bool get hasPrev => _index > 0;
 
   Future<void> playQueue(List<Track> tracks, int start, {bool radio = false, bool shuffled = false}) async {
+    if (tracks.isEmpty) return; // нечего играть — не трогаем текущую очередь
+    start = start.clamp(0, tracks.length - 1);
     _queue = List.of(tracks);
     this.radio = radio;
     shuffle = false;
@@ -278,7 +280,9 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
-  void jumpTo(int i) => _playAt(i);
+  void jumpTo(int i) {
+    if (i >= 0 && i < _queue.length) _playAt(i);
+  }
 
   // ---------- громкость (на ПК и в браузере; на телефоне — кнопками телефона) ----------
   double volume = 1;
@@ -313,7 +317,12 @@ class PlayerService extends ChangeNotifier {
       _dropPreload();
     }
     if (current == t) {
-      await next();
+      if (hasNext) {
+        await next();
+      } else {
+        await player.pause(); // дальше играть нечего — хотя бы остановим то, что не нравится
+        notifyListeners();
+      }
     } else {
       notifyListeners();
     }

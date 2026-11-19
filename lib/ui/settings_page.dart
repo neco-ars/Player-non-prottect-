@@ -114,10 +114,10 @@ class _SettingsPageState extends State<SettingsPage> {
         const Divider(height: 40),
         Row(children: [Expanded(child: Text('Звук', style: h)), _status(app.zvuk.isConfigured)]),
         const SizedBox(height: 8),
-        Text(
+        const Text(
           'Без входа Звук ищет, но вместо треков отдаёт 30-секундные фрагменты. Чтобы слушать целиком, '
           'войди своим аккаунтом (подписка не обязательна; с подпиской — 320 кбит/с).',
-          style: const TextStyle(color: AppColors.textDim),
+          style: TextStyle(color: AppColors.textDim),
         ),
         const SizedBox(height: 12),
         if (inAppLoginSupported)
