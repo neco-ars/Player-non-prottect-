@@ -40,6 +40,11 @@ class Net {
       return 'прокси не пропустил запрос — обнови worker.js на Cloudflare (см. proxy/README.md) '
           'и открывай сайт по адресу из ALLOWED_ORIGIN';
     }
+    // защита сайта от ботов гоняет запрос по кругу или отвечает «я чайник» — чаще всего из-за VPN
+    if (s.contains('Redirect loop') || s.contains('redirect loop') || s.contains('HTTP 418')) {
+      return 'сайт не пускает запрос (защита от ботов) — чаще всего из-за VPN: выключи его '
+          'или добавь приложение в исключения VPN';
+    }
     if (s.contains('Handshake')) return 'не удалось установить защищённое соединение (сеть или провайдер обрывает его)';
     if (s.contains('SocketException') || s.contains('Failed host lookup')) return 'нет соединения с сервером';
     if (e is TimeoutException) return 'сервер не ответил вовремя';

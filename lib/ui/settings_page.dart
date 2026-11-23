@@ -53,7 +53,15 @@ class _SettingsPageState extends State<SettingsPage> {
       _toast(name.isEmpty ? 'Звук: вход выполнен' : 'Звук: вход выполнен — $name');
       setState(() {});
     } catch (e) {
-      if (mounted) _toast('Не удалось проверить: ${Net.describe(e)}');
+      // проверить не дала сеть или защита Звука (часто — из-за VPN): токен всё равно сохраняем
+      app.settings.zvukToken = token;
+      app.zvuk.userToken = token;
+      _zvuk.text = token;
+      if (mounted) {
+        _toast('Токен сохранён, но проверить его не удалось: ${Net.describe(e)}. '
+            'Если Звук не играет — выключи VPN или исключи из него приложение.');
+        setState(() {});
+      }
     }
   }
 
@@ -64,6 +72,40 @@ class _SettingsPageState extends State<SettingsPage> {
     _toast(v.isEmpty ? 'YouTube отключён' : 'YouTube подключён');
     setState(() {});
   }
+
+  /// Вход в Звук вставкой токена: открыть zvuk.com, войти, скопировать страницу с токеном.
+  List<Widget> _manualZvuk() => [
+        OutlinedButton.icon(
+          icon: const Icon(Icons.login),
+          label: const Text('1. Открыть zvuk.com и войти'),
+          onPressed: () => launchUrl(Uri.parse('https://zvuk.com/'), mode: LaunchMode.externalApplication),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.key),
+          label: const Text('2. Открыть страницу с токеном'),
+          onPressed: () => launchUrl(Uri.parse('https://zvuk.com/api/tiny/profile'), mode: LaunchMode.externalApplication),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'На этой странице выдели всё (Ctrl+A, на телефоне — долгое нажатие → «Выбрать всё»), скопируй и вставь ниже '
+          'целиком — токен приложение найдёт само.',
+          style: TextStyle(fontSize: 12, color: AppColors.textDim),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _zvuk,
+          maxLines: 2,
+          decoration:
+              const InputDecoration(labelText: '3. Вставь сюда текст страницы (или только токен)', border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, children: [
+          FilledButton(onPressed: () => _saveZvuk(_zvuk.text), child: const Text('Сохранить и проверить')),
+          if (app.zvuk.userToken?.isNotEmpty == true)
+            TextButton(onPressed: () => _saveZvuk(''), child: const Text('Выйти')),
+        ]),
+      ];
 
   Widget _status(bool ok) => Chip(
         label: Text(ok ? 'подключено' : 'не подключено'),
@@ -131,7 +173,7 @@ class _SettingsPageState extends State<SettingsPage> {
             style: TextStyle(color: AppColors.textDim),
           ),
           const SizedBox(height: 12),
-          if (inAppLoginSupported)
+          if (inAppLoginSupported) ...[
             FilledButton.icon(
               icon: const Icon(Icons.login),
               label: Text(app.zvuk.userToken?.isNotEmpty == true ? 'Войти заново' : 'Войти в Звук'),
@@ -139,43 +181,24 @@ class _SettingsPageState extends State<SettingsPage> {
                 final token = await loginZvuk(context);
                 if (token != null && mounted) await _saveZvuk(token);
               },
-            )
-          else ...[
+            ),
+            // если встроенный вход не открывается (VPN, защита Звука) — можно вставить токен самому
+            Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(bottom: 8),
+                expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                title: const Text('Вставить токен вручную'),
+                subtitle: const Text('Если кнопка входа не срабатывает', style: TextStyle(fontSize: 12)),
+                children: _manualZvuk(),
+              ),
+            ),
+          ] else ...[
             // В браузере и на ПК встроенного входа нет: браузер не даёт читать вход на чужом сайте.
             const Text('Вход в 3 шага:', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.login),
-              label: const Text('1. Открыть zvuk.com и войти'),
-              onPressed: () => launchUrl(Uri.parse('https://zvuk.com/'), mode: LaunchMode.externalApplication),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.key),
-              label: const Text('2. Открыть страницу с токеном'),
-              onPressed: () =>
-                  launchUrl(Uri.parse('https://zvuk.com/api/tiny/profile'), mode: LaunchMode.externalApplication),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'На этой странице выдели всё (Ctrl+A, на iPhone — «Выбрать всё»), скопируй и вставь ниже целиком — '
-              'токен приложение найдёт само.',
-              style: TextStyle(fontSize: 12, color: AppColors.textDim),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _zvuk,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                  labelText: '3. Вставь сюда текст страницы (или только токен)', border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 8),
-            Row(children: [
-              FilledButton(onPressed: () => _saveZvuk(_zvuk.text), child: const Text('Сохранить и проверить')),
-              const SizedBox(width: 8),
-              if (app.zvuk.userToken?.isNotEmpty == true)
-                TextButton(onPressed: () => _saveZvuk(''), child: const Text('Выйти')),
-            ]),
+            ..._manualZvuk(),
           ],
         ],
         const Divider(height: 40),

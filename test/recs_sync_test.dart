@@ -8,6 +8,7 @@ import 'package:music_player/services/recommendations.dart';
 import 'package:music_player/services/search_service.dart';
 import 'package:music_player/services/sync.dart';
 import 'package:music_player/services/taste.dart';
+import 'package:music_player/sources/net.dart';
 
 import 'edge_cases_test.dart' show FakeSource, t;
 
@@ -195,6 +196,12 @@ void main() {
       s.play(x);
       expect(s.liked, ['X']);
     });
+  });
+
+  test('защита сайта от ботов (VPN) описывается понятно', () {
+    final m = Net.describe(Exception('ClientRedirect loop detected, uri=https://zvuk.com/api/tiny/profile'));
+    expect(m, contains('VPN'));
+    expect(Net.describe(Exception('Звук: не удалось получить гостевой доступ (HTTP 418)')), contains('VPN'));
   });
 
   group('Порядок выдачи поиска', () {
