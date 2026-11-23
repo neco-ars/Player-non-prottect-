@@ -7,6 +7,7 @@ import 'equalizer_page.dart';
 import 'lyrics_sheet.dart';
 import 'nav.dart';
 import 'position.dart';
+import 'tag_chips.dart';
 import 'theme.dart';
 import 'volume.dart';
 import 'track_menu.dart';
@@ -166,6 +167,7 @@ class NowPlayingPage extends StatelessWidget {
                         onPressed: () => app.library.toggleLike(t),
                       ),
                     ]),
+                    TrackTags(track: t),
                     const ExplicitOffer(),
                     if (p.error != null)
                       Padding(

@@ -1,5 +1,5 @@
 // Рекомендации, радио и синхронизация: поддельный «граф вкусов» и поддельные площадки.
-import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart' hide Tags;
 
 import 'package:music_player/models/track.dart';
 import 'package:music_player/services/catalog.dart';
@@ -7,6 +7,7 @@ import 'package:music_player/services/library.dart';
 import 'package:music_player/services/recommendations.dart';
 import 'package:music_player/services/search_service.dart';
 import 'package:music_player/services/sync.dart';
+import 'package:music_player/services/tags.dart';
 import 'package:music_player/services/taste.dart';
 import 'package:music_player/sources/net.dart';
 
@@ -54,6 +55,29 @@ class FakeGraph extends TasteGraph {
       [for (final r in rel[_names[artistId]] ?? const <String>[]) TasteArtist(_id(r), r, null)];
   @override
   Future<List<Track>> chart() async => broken ? throw Exception('нет') : [];
+}
+
+/// Теги без сети: исполнитель → теги.
+class FakeTags extends TagService {
+  final Map<String, Map<String, double>> byArtist;
+  FakeTags(this.byArtist) : super(key: '');
+  Tags _of(String artist) => TagService.normalize(byArtist[Library.artistKey(artist)] ?? const {});
+  @override
+  Future<Tags> artistTags(String artist, {String? zvukArtistId}) async => _of(artist);
+  @override
+  Future<Tags> trackTags(Track t, {String? artist}) async => _of(artist ?? t.artist);
+  @override
+  Tags cachedTrackTags(Track t, {String? artist}) => _of(artist ?? t.artist);
+  @override
+  Future<void> prefetch(Iterable<String> artists, {int parallel = 8}) async {}
+  @override
+  Future<(Tags, Tags)> profile(Library library, {bool force = false}) async {
+    final s = library.artistScores().values;
+    return (
+      TagService.blend([for (final x in s) if (x.$2 > 0) (_of(x.$1), x.$2)]),
+      TagService.blend([for (final x in s) if (x.$2 < 0) (_of(x.$1), -x.$2)]),
+    );
+  }
 }
 
 /// SoundCloud с «станцией трека».
@@ -232,6 +256,52 @@ void main() {
       expect(s.liked, isEmpty); // дослушали столько же, сколько пропустили
       s.play(x);
       expect(s.liked, ['X']);
+    });
+  });
+
+  group('Теги', () {
+    test('нормализация: синонимы, мусор, родительские жанры, составные жанры', () {
+      final t = TagService.normalize({'Deathcore': 1.0, 'seen live': 1.0, 'Hip Hop': 0.5, 'Metal/Hard Rock': 0.8, 'металкор': 0.7});
+      expect(t.containsKey('seen live'), isFalse);
+      expect(t['deathcore'], 1.0);
+      expect(t['metal'], greaterThan(0.5)); // родитель deathcore и часть «Metal/Hard Rock»
+      expect(t['hip-hop'], 0.5);
+      expect(t['hard rock'], 0.8);
+      expect(t['metalcore'], 0.7); // жанр Звука по-русски
+    });
+
+    test('похожесть: одно и то же — 1, ничего общего — 0', () {
+      final a = TagService.normalize({'deathcore': 1.0});
+      expect(TagService.similarity(a, a), closeTo(1, 1e-9));
+      expect(TagService.similarity(a, TagService.normalize({'k-pop': 1.0})), 0);
+      expect(TagService.similarity(a, const {}), 0);
+    });
+
+    test('радио по треку у любителя металла: тяжёлое выше, хотя песня — рэп', () async {
+      Duration s(int x) => Duration(seconds: x);
+      final lib = Library.memory();
+      for (var i = 0; i < 6; i++) {
+        lib.recordPlay(t('zvuk', 'm$i', 'Metal Band', 'x$i'));
+      }
+      final station = [
+        for (var i = 0; i < 6; i++) t('soundcloud', 'r$i', 'Rapper$i', 'rap song $i', duration: s(150)),
+        for (var i = 0; i < 6; i++) t('soundcloud', 'h$i', 'Heavy$i', 'heavy song $i', duration: s(200)),
+      ];
+      final seedSc = t('soundcloud', 'seed', 'Seed', 'Seed - Song', duration: s(160));
+      final sc = FakeSoundCloud(results: {'Seed Song': [seedSc]}, stationTracks: station);
+      final fakeTags = FakeTags({
+        'metal band': {'deathcore': 1.0},
+        'seed': {'emo rap': 1.0},
+        for (var i = 0; i < 6; i++) 'rapper$i': {'hip-hop': 1.0},
+        for (var i = 0; i < 6; i++) 'heavy$i': {'deathcore': 1.0, 'emo rap': 0.4},
+      });
+      final search = SearchService([sc]);
+      final r = Recommendations(search, lib, CatalogService(search), graph: FakeGraph(), tags: fakeTags);
+      final seed = t('zvuk', 'z', 'Seed', 'Song', duration: s(160));
+      final batch = await r.radioBatch(RadioSeed.track(seed), {seed.key}, want: 6);
+      final heavy = batch.where((x) => x.artist.startsWith('Heavy')).length;
+      expect(heavy, greaterThanOrEqualTo(4));
+      expect(batch.take(2).every((x) => x.artist.startsWith('Heavy')), isTrue);
     });
   });
 

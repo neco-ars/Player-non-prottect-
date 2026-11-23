@@ -303,6 +303,9 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> startWave() => startRadioFrom(RadioSeed.wave);
 
+  /// Радио по тегу (жанру): «metalcore», «emo rap»…
+  Future<void> startTagRadio(String tag) => startRadioFrom(RadioSeed.tag(tag));
+
   void playNext(Track t) {
     if (current == null) {
       playQueue([t], 0);

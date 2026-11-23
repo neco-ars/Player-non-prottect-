@@ -5,6 +5,7 @@ import '../services/library.dart';
 import '../services/recommendations.dart';
 import 'library_page.dart';
 import 'source_filter.dart';
+import 'tag_chips.dart';
 import 'settings_page.dart';
 import 'theme.dart';
 import 'track_menu.dart';
@@ -62,6 +63,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               const SliverToBoxAdapter(child: _WaveCard()),
+              const SliverToBoxAdapter(child: YourTags()),
               SliverToBoxAdapter(child: _QuickGrid()),
               SliverToBoxAdapter(
                 child: Padding(

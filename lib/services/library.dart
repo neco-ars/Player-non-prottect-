@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show min;
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -320,6 +321,14 @@ class Library extends ChangeNotifier {
   /// Любимые исполнители, самые любимые первыми: прослушивания до конца, лайки и свежесть
   /// минус пропуски. Исполнители из «Скрытого» сюда не попадают.
   List<String> topArtists([int n = 8]) {
+    final s = artistScores();
+    final keys = s.keys.where((k) => s[k]!.$2 > 0).toList()..sort((a, b) => s[b]!.$2.compareTo(s[a]!.$2));
+    return [for (final k in keys.take(n)) s[k]!.$1];
+  }
+
+  /// Насколько нравится каждый исполнитель: artistKey → (имя, оценка). Отрицательная — пропускаешь
+  /// или скрыл. Из этого строится профиль тегов (что ты любишь и чего избегаешь).
+  Map<String, (String, double)> artistScores() {
     final score = <String, double>{};
     final names = <String, String>{};
     void add(String name, double v) {
@@ -343,10 +352,14 @@ class Library extends ChangeNotifier {
     for (final (i, t) in history.take(60).indexed) {
       add(t.artist, 1 - i / 60);
     }
+    for (final t in disliked) {
+      add(t.artist, -6);
+    }
     final bad = dislikedArtists;
-    final keys = score.keys.where((k) => score[k]! > 0 && !bad.contains(k)).toList()
-      ..sort((a, b) => score[b]!.compareTo(score[a]!));
-    return [for (final k in keys.take(n)) names[k]!];
+    return {
+      for (final k in score.keys)
+        if (names[k] != null) k: (names[k]!, bad.contains(k) ? min(score[k]!, -3.0) : score[k]!),
+    };
   }
 
   /// Исполнителя часто пропускают — в радио его лучше не ставить.

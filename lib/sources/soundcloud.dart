@@ -107,8 +107,48 @@ class SoundCloudSource extends MusicSource {
         'auth': j['track_authorization'],
         'url': j['permalink_url'],
         if (user['id'] != null) 'artistId': '${user['id']}',
+        if (parseTagList(j['tag_list']) case final tags when tags.isNotEmpty) 'tags': tags,
       },
     );
+  }
+
+  /// Теги трека SoundCloud: «rap "emo rap" russian» → [rap, emo rap, russian].
+  static List<String> parseTagList(dynamic raw) {
+    if (raw is! String || raw.trim().isEmpty) return const [];
+    return [
+      for (final m in RegExp(r'"([^"]+)"|(\S+)').allMatches(raw))
+        if ((m[1] ?? m[2])!.trim().isNotEmpty) (m[1] ?? m[2])!.trim(),
+    ];
+  }
+
+  /// Песни по тегу или жанру (поиск SoundCloud с фильтром по тегу).
+  Future<List<Track>> byTag(String tag, {int offset = 0}) async {
+    // q=* — все треки с этим тегом (с q=тег искались бы любительские «deathcore idea song»)
+    final res = await _get('https://api-v2.soundcloud.com/search/tracks',
+        {'q': '*', 'filter.genre_or_tag': tag, 'limit': '50', 'offset': '$offset'});
+    if (res.statusCode != 200) return [];
+    final list = (jsonDecode(res.body)['collection'] as List?) ?? const [];
+    return [
+      for (final j in list.whereType<Map>())
+        // совсем непрослушанное — обычно черновики и заливки «для себя»
+        if (((j['playback_count'] as num?) ?? 0) >= 3000)
+          if (_parse(j) case final t?)
+            Track(
+              source: t.source,
+              id: t.id,
+              title: t.title,
+              artist: t.artist,
+              album: t.album,
+              year: t.year,
+              genre: t.genre,
+              coverUrl: t.coverUrl,
+              duration: t.duration,
+              explicit: t.explicit,
+              previewOnly: t.previewOnly,
+              // тег, по которому нашли, — тоже тег трека
+              extra: {...t.extra, 'tags': {...(t.extra['tags'] as List? ?? const []), tag}.toList()},
+            ),
+    ];
   }
 
   List<Track> _parseList(String body) =>

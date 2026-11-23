@@ -16,6 +16,7 @@ import 'recommendations.dart';
 import 'search_service.dart';
 import 'settings.dart';
 import 'sync.dart';
+import 'tags.dart';
 
 /// Все сервисы приложения в одном месте.
 class AppServices {
@@ -32,6 +33,7 @@ class AppServices {
   final LyricsService lyrics = LyricsService();
   final GeniusService genius;
   final SyncService sync;
+  TagService get tags => recs.tags;
 
   AppServices._(this.settings, this.library, this.youtube, this.audiomack, this.zvuk, this.local,
       this.search, this.recs, this.player, this.catalog, this.genius, this.sync);
@@ -49,7 +51,7 @@ class AppServices {
     final zvuk = ZvukSource(settings.zvukToken);
     final search = SearchService([local, zvuk, SoundCloudSource(), audiomack, youtube]);
     final catalog = CatalogService(search);
-    final recs = Recommendations(search, library, catalog);
+    final recs = Recommendations(search, library, catalog, tags: TagService(zvuk: zvuk));
     final equalizer = EqualizerService();
     await equalizer.load();
     final player = PlayerService(search, library, recs, equalizer);

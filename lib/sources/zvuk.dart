@@ -76,6 +76,68 @@ query getArtists(\$ids: [ID!]!) {
   }
 }''';
 
+  // ---------- для рекомендаций: жанры и похожие исполнители ----------
+
+  static const _artistGenresQuery = r'''
+query getArtists($ids: [ID!]!) {
+  getArtists(ids: $ids) { id releases(offset: 0, limit: 30) { genres { name } } }
+}''';
+
+  static const _relatedArtistsQuery = r'''
+query getArtists($ids: [ID!]!, $limit: Int) {
+  getArtists(ids: $ids) { id relatedArtists(limit: $limit) { id title image { src } } }
+}''';
+
+  static const _releaseGenresQuery = r'''
+query getReleases($ids: [ID!]!) {
+  getReleases(ids: $ids) { id genres { name } }
+}''';
+
+  /// Жанры исполнителя по его релизам: чем у большего числа релизов жанр, тем больше вес (0..1).
+  Future<Map<String, double>> artistGenres(String artistId) async {
+    final data = await _gql('getArtists', _artistGenresQuery, {'ids': [artistId]});
+    final a = ((data['getArtists'] as List?) ?? const []).whereType<Map>().firstOrNull;
+    final releases = ((a?['releases'] as List?) ?? const []).whereType<Map>().toList();
+    if (releases.isEmpty) return {};
+    final count = <String, int>{};
+    for (final r in releases) {
+      for (final g in ((r['genres'] as List?) ?? const []).whereType<Map>()) {
+        final n = '${g['name'] ?? ''}'.trim();
+        if (n.isNotEmpty) count[n] = (count[n] ?? 0) + 1;
+      }
+    }
+    final most = count.values.fold<int>(0, (m, v) => v > m ? v : m);
+    return {for (final e in count.entries) e.key: e.value / most};
+  }
+
+  /// Жанры релиза (альбома или сингла).
+  Future<List<String>> releaseGenres(String releaseId) async {
+    final data = await _gql('getReleases', _releaseGenresQuery, {'ids': [releaseId]});
+    final r = ((data['getReleases'] as List?) ?? const []).whereType<Map>().firstOrNull;
+    return [
+      for (final g in ((r?['genres'] as List?) ?? const []).whereType<Map>())
+        if ('${g['name'] ?? ''}'.trim().isNotEmpty) '${g['name']}'.trim(),
+    ];
+  }
+
+  /// Похожие исполнители по версии Звука.
+  Future<List<ArtistRef>> relatedArtists(String artistId, {int limit = 30}) async {
+    final data = await _gql('getArtists', _relatedArtistsQuery, {'ids': [artistId], 'limit': limit});
+    final a = ((data['getArtists'] as List?) ?? const []).whereType<Map>().firstOrNull;
+    return ((a?['relatedArtists'] as List?) ?? const []).whereType<Map>().map(_parseArtist).toList();
+  }
+
+  /// id исполнителя по имени (только точное совпадение без пробелов и регистра).
+  Future<String?> findArtistId(String name) async {
+    String c(String s) => Track.normalize(s).replaceAll(' ', '');
+    final want = c(name.split(RegExp(r',|&| feat\.? | ft\.? ', caseSensitive: false)).first);
+    if (want.isEmpty) return null;
+    for (final a in await searchArtists(name)) {
+      if (c(a.name) == want) return a.id;
+    }
+    return null;
+  }
+
   static const _streamQuery = r'''
 query getStream($ids: [ID!]!) {
   mediaContents(ids: $ids) {
