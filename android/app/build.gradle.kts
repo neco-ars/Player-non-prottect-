@@ -4,8 +4,28 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Постоянный ключ подписи: одна и та же подпись у всех версий, поэтому новая ставится поверх старой.
+// На GitHub ключ берётся из секретов (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD),
+// локально — из signing/release.jks (папка в .gitignore). Нет ключа — подписываем отладочным.
+val releaseKeystore = System.getenv("ANDROID_KEYSTORE_PATH")?.let { file(it) }
+    ?: rootProject.file("../signing/release.jks")
+val releasePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+    ?: rootProject.file("../signing/ANDROID_KEYSTORE_PASSWORD.txt").takeIf { it.exists() }?.readText()?.trim()
+val hasReleaseKey = releaseKeystore.exists() && !releasePassword.isNullOrEmpty()
+
 android {
     namespace = "com.musicplayer.music_player"
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = releasePassword
+                keyAlias = "music_player"
+                keyPassword = releasePassword
+            }
+        }
+    }
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -31,9 +51,7 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
         }
     }
 }

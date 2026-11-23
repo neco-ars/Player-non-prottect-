@@ -55,3 +55,7 @@ app.*.map.json
 
 # ключи приложения для локальной сборки — в git не попадают (образец: keys.example.json)
 /keys.json
+
+# ключ подписи Android (секрет, в репозиторий не кладём)
+/signing/
+/android/.kotlin/
