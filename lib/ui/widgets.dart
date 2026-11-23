@@ -12,8 +12,16 @@ const sourceColors = {
   'audiomack': Color(0xFFFFA200),
   'zvuk': Color(0xFF3D6BFF),
   'youtube': Color(0xFFFF0033),
+  'pick': Color(0xFF9B8CFF),
 };
-const sourceNames = {'local': 'Мои файлы', 'soundcloud': 'SoundCloud', 'audiomack': 'Audiomack', 'zvuk': 'Звук', 'youtube': 'YouTube'};
+const sourceNames = {
+  'local': 'Мои файлы',
+  'soundcloud': 'SoundCloud',
+  'audiomack': 'Audiomack',
+  'zvuk': 'Звук',
+  'youtube': 'YouTube',
+  'pick': 'Подбор', // песня из рекомендаций: площадку выберем при воспроизведении
+};
 
 String fmtDuration(Duration? d) {
   if (d == null || d == Duration.zero) return '';

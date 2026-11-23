@@ -28,6 +28,7 @@ ALLOWED_HOSTS = [
     r"^api\.audiomack\.com$",
     r"^zvuk\.com$",  # Звук: гостевой токен и GraphQL API
     r"^api\.genius\.com$",  # Genius: ссылка на страницу текста
+    r"^api\.deezer\.com$",  # Deezer: похожие исполнители и радио для рекомендаций
 ]
 
 # Какие заголовки клиента пересылаем дальше.

@@ -312,7 +312,9 @@ void showQueue(BuildContext context) {
           return Column(children: [
             SectionTitle(
               'Очередь',
-              subtitle: app.player.radio ? 'Радио: похожие треки догружаются сами' : '${q.length} треков',
+              subtitle: app.player.radio
+                  ? '${app.player.radioSeed?.title ?? 'Радио'}: новые треки догружаются сами'
+                  : '${q.length} треков',
               trailing: app.player.radio
                   ? TextButton(onPressed: () => app.player.setRadio(false), child: const Text('Выключить радио'))
                   : null,

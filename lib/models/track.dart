@@ -41,6 +41,11 @@ class Track {
   /// Видео YouTube играет через официальный плеер, а не через аудиоплеер.
   bool get isVideo => source == 'youtube';
 
+  /// Трек из рекомендаций («подсказка»): известно только, что за песня.
+  /// Перед воспроизведением плеер находит её на наших площадках.
+  static const pickSource = 'pick';
+  bool get isPick => source == pickSource;
+
   /// Ключ для объединения одинаковых песен с разных площадок.
   String get matchKey => '${normalize(artist)}|${normalize(title)}';
 

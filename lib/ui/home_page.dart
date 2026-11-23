@@ -61,6 +61,7 @@ class _HomePageState extends State<HomePage> {
                   ]),
                 ),
               ),
+              const SliverToBoxAdapter(child: _WaveCard()),
               SliverToBoxAdapter(child: _QuickGrid()),
               SliverToBoxAdapter(
                 child: Padding(
@@ -109,6 +110,88 @@ class _HomePageState extends State<HomePage> {
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
             ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// «Моя волна»: бесконечное радио по твоему вкусу (что слушаешь, лайкаешь и пропускаешь).
+class _WaveCard extends StatelessWidget {
+  const _WaveCard();
+
+  Future<void> _start(BuildContext context) async {
+    final p = app.player;
+    if (p.radioSeed?.kind == RadioKind.wave && p.current != null) {
+      p.player.playing ? await p.player.pause() : await p.player.play();
+      return;
+    }
+    await p.startWave();
+    if (p.current == null && p.error != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(p.error!)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = app.player;
+    final on = p.radioSeed?.kind == RadioKind.wave && p.current != null;
+    final empty = app.library.history.isEmpty && app.library.liked.tracks.isEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: Material(
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: Ink(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF2B1A6B), Color(0xFF6A3DE8), Color(0xFFB04BD9)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: InkWell(
+            onTap: p.radioStarting ? null : () => _start(context),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
+              child: Row(children: [
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Моя волна', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const SizedBox(height: 4),
+                    Text(
+                      on
+                          ? 'Играет. Пропускай то, что не нравится, — волна подстроится'
+                          : empty
+                              ? 'Начнём с популярного, дальше — по твоему вкусу'
+                              : 'Бесконечно, по твоему вкусу: ${app.library.topArtists(3).join(', ')} и похожие',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
+                  ]),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 52,
+                  height: 52,
+                  child: p.radioStarting
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
+                        )
+                      : StreamBuilder<bool>(
+                          stream: p.player.playingStream,
+                          builder: (_, snap) => CircleAvatar(
+                            backgroundColor: Colors.white,
+                            child: Icon(on && (snap.data ?? false) ? Icons.pause : Icons.play_arrow,
+                                color: const Color(0xFF6A3DE8), size: 32),
+                          ),
+                        ),
+                ),
+              ]),
+            ),
           ),
         ),
       ),
@@ -198,7 +281,8 @@ class _Carousel extends StatelessWidget {
         .where((t) => (source == null || t.source == source) && app.library.allowedInRecs(t))
         .toList();
     if (tracks.isEmpty) return const SizedBox.shrink();
-    final isRadio = section.title != 'Недавно слушал';
+    // подборки «похожего» продолжаются радио; история, любимое и чарт — просто списки
+    final isRadio = section.title.startsWith('Похоже') || section.title.startsWith('Новое');
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       SectionTitle(
         section.title,

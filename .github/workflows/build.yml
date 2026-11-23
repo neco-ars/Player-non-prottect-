@@ -20,6 +20,8 @@ env:
     --dart-define=AUDIOMACK_KEY=${{ secrets.AUDIOMACK_KEY }}
     --dart-define=AUDIOMACK_SECRET=${{ secrets.AUDIOMACK_SECRET }}
     --dart-define=PROXY_URL=${{ vars.PROXY_URL }}
+    --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }}
+    --dart-define=SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
 
 # Новая отправка в ту же ветку отменяет устаревшую сборку, а не ждёт её в очереди.
 concurrency:

@@ -15,6 +15,7 @@ import 'player_service.dart';
 import 'recommendations.dart';
 import 'search_service.dart';
 import 'settings.dart';
+import 'sync.dart';
 
 /// Все сервисы приложения в одном месте.
 class AppServices {
@@ -30,9 +31,10 @@ class AppServices {
   final CatalogService catalog;
   final LyricsService lyrics = LyricsService();
   final GeniusService genius;
+  final SyncService sync;
 
   AppServices._(this.settings, this.library, this.youtube, this.audiomack, this.zvuk, this.local,
-      this.search, this.recs, this.player, this.catalog, this.genius);
+      this.search, this.recs, this.player, this.catalog, this.genius, this.sync);
 
   static Future<AppServices> init() async {
     final settings = await Settings.load();
@@ -54,8 +56,10 @@ class AppServices {
     await player.loadVolume();
     TrackGroup.preferExplicitDefault(settings.preferExplicit);
     player.findOriginal = settings.findOriginal;
-    return AppServices._(
-        settings, library, youtube, audiomack, zvuk, local, search, recs, player, catalog, GeniusService(AppKeys.pick(settings.geniusToken, AppKeys.genius)));
+    final sync = SyncService(library);
+    await sync.init();
+    return AppServices._(settings, library, youtube, audiomack, zvuk, local, search, recs, player, catalog,
+        GeniusService(AppKeys.pick(settings.geniusToken, AppKeys.genius)), sync);
   }
 }
 

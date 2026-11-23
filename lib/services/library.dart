@@ -46,6 +46,17 @@ class _WebStore implements _Store {
   Future<void> backup(String data) async => (await SharedPreferences.getInstance()).setString('${_key}_broken', data);
 }
 
+/// В памяти — для тестов.
+class _MemStore implements _Store {
+  String? data;
+  @override
+  Future<String?> read() async => data;
+  @override
+  Future<void> write(String d) async => data = d;
+  @override
+  Future<void> backup(String d) async {}
+}
+
 class Playlist {
   final String id;
   String name;
@@ -70,7 +81,28 @@ class Library extends ChangeNotifier {
   final List<Track> history = []; // самые свежие в начале
   Timer? _saveTimer;
 
+  // ---------- для синхронизации между устройствами ----------
+  /// Когда менялась каждая часть библиотеки (мс): 'pl:<id>' — плейлист, 'disliked' — «Скрытое».
+  /// При слиянии с облаком побеждает более свежая версия части.
+  final Map<String, int> stamps = {};
+
+  /// Удалённые плейлисты: id → когда удалили. Чтобы облако не вернуло их обратно.
+  final Map<String, int> deletedPlaylists = {};
+
+  /// Когда трек из истории слушали последний раз (ключ — track.key).
+  final Map<String, int> historyAt = {};
+
+  /// Вызывается после каждого сохранения (синхронизация отправляет изменения в облако).
+  void Function()? onSaved;
+
+  static int get _now => DateTime.now().millisecondsSinceEpoch;
+  void _touch(String part) => stamps[part] = _now;
+
   Library._(this._store);
+
+  /// Пустая библиотека в памяти (для тестов).
+  @visibleForTesting
+  factory Library.memory() => Library._(_MemStore()).._ensureLiked();
 
   static Future<Library> load() async {
     final _Store store;
@@ -90,16 +122,45 @@ class Library extends ChangeNotifier {
         lib.playlists.addAll(_each(j['playlists'], (p) => Playlist.fromJson(Map<String, dynamic>.from(p))));
         lib.history.addAll(_each(j['history'], (t) => Track.fromJson(Map<String, dynamic>.from(t))));
         lib.disliked.addAll(_each(j['disliked'], (t) => Track.fromJson(Map<String, dynamic>.from(t))));
+        lib._readMeta(j);
       }
     } catch (e) {
       debugPrint('library.json повреждён, начинаем заново: $e');
       // сохраняем испорченный файл рядом, чтобы его можно было восстановить вручную
       if (raw != null) await store.backup(raw);
     }
-    if (!lib.playlists.any((p) => p.id == likedId)) {
-      lib.playlists.insert(0, Playlist(id: likedId, name: 'Любимое'));
+    lib._ensureLiked();
+    // у истории из старых версий нет времени — сохраняем хотя бы порядок
+    final base = _now;
+    for (var i = 0; i < lib.history.length; i++) {
+      lib.historyAt.putIfAbsent(lib.history[i].key, () => base - (i + 1) * 1000);
     }
     return lib;
+  }
+
+  void _ensureLiked() {
+    if (!playlists.any((p) => p.id == likedId)) {
+      playlists.insert(0, Playlist(id: likedId, name: 'Любимое'));
+    }
+  }
+
+  static Map<String, int> _ints(dynamic m) => {
+        for (final e in ((m is Map) ? m : const {}).entries)
+          if (e.value is num) '${e.key}': (e.value as num).toInt(),
+      };
+
+  void _readMeta(Map<String, dynamic> j) {
+    stamps.addAll(_ints(j['stamps']));
+    deletedPlaylists.addAll(_ints(j['deleted']));
+    historyAt.addAll(_ints(j['historyAt']));
+    final arts = j['artists'];
+    if (arts is Map) {
+      for (final e in arts.entries) {
+        try {
+          artists['${e.key}'] = ArtistStat.fromJson(Map<String, dynamic>.from(e.value));
+        } catch (_) {}
+      }
+    }
   }
 
   /// Разобрать список, пропуская элементы, которые не читаются.
@@ -123,26 +184,33 @@ class Library extends ChangeNotifier {
       liked.tracks.remove(t);
     } else {
       liked.tracks.insert(0, t);
+      final before = disliked.length;
       disliked.removeWhere((d) => d.matchKey == t.matchKey); // нравится — значит, больше не скрываем
+      if (disliked.length != before) _touch('disliked');
     }
+    _touch('pl:$likedId');
     _changed();
   }
 
   Playlist createPlaylist(String name) {
     final p = Playlist(id: DateTime.now().microsecondsSinceEpoch.toString(), name: name);
     playlists.add(p);
+    _touch('pl:${p.id}');
     _changed();
     return p;
   }
 
   void renamePlaylist(Playlist p, String name) {
     p.name = name;
+    _touch('pl:${p.id}');
     _changed();
   }
 
   void deletePlaylist(Playlist p) {
     if (p.id == likedId) return;
     playlists.remove(p);
+    deletedPlaylists[p.id] = _now;
+    stamps.remove('pl:${p.id}');
     _changed();
   }
 
@@ -150,18 +218,21 @@ class Library extends ChangeNotifier {
   bool addTo(Playlist p, Track t) {
     if (p.tracks.contains(t)) return false;
     p.tracks.add(t);
+    _touch('pl:${p.id}');
     _changed();
     return true;
   }
 
   void removeFrom(Playlist p, Track t) {
     p.tracks.remove(t);
+    _touch('pl:${p.id}');
     _changed();
   }
 
   void reorder(Playlist p, int oldIndex, int newIndex) {
     if (newIndex > oldIndex) newIndex--;
     p.tracks.insert(newIndex, p.tracks.removeAt(oldIndex));
+    _touch('pl:${p.id}');
     _changed();
   }
 
@@ -190,20 +261,98 @@ class Library extends ChangeNotifier {
   void dislike(Track t) {
     if (isDisliked(t)) return;
     disliked.insert(0, t);
-    if (isLiked(t)) liked.tracks.remove(t); // не нравится — значит, и не в «Любимом»
+    _touch('disliked');
+    if (isLiked(t)) {
+      liked.tracks.remove(t); // не нравится — значит, и не в «Любимом»
+      _touch('pl:$likedId');
+    }
     _changed();
   }
 
   void undislike(Track t) {
     disliked.removeWhere((d) => d.matchKey == t.matchKey);
+    _touch('disliked');
     _changed();
   }
 
   void addHistory(Track t) {
     history.remove(t);
     history.insert(0, t);
-    if (history.length > historyLimit) history.removeRange(historyLimit, history.length);
+    historyAt[t.key] = _now;
+    if (history.length > historyLimit) {
+      for (final old in history.skip(historyLimit)) {
+        historyAt.remove(old.key);
+      }
+      history.removeRange(historyLimit, history.length);
+    }
     _changed();
+  }
+
+  // ---------- вкус: что слушаешь до конца и что пропускаешь ----------
+  // Как у «Моей волны»: дослушал — исполнитель нравится сильнее, пропустил в начале — слабее.
+
+  /// Статистика по исполнителям (ключ — [artistKey]).
+  final Map<String, ArtistStat> artists = {};
+
+  static String _primaryName(String artist) =>
+      artist.split(RegExp(r',|&| feat\.? | ft\.? ', caseSensitive: false)).first.trim();
+
+  ArtistStat _stat(Track t) => artists.putIfAbsent(artistKey(t.artist), () => ArtistStat(_primaryName(t.artist)));
+
+  /// Трек послушали (больше половины или до конца).
+  void recordPlay(Track t) {
+    if (artistKey(t.artist).isEmpty) return;
+    final s = _stat(t);
+    s.plays++;
+    s.last = _now;
+    _changed();
+  }
+
+  /// Трек пропустили в самом начале.
+  void recordSkip(Track t) {
+    if (artistKey(t.artist).isEmpty) return;
+    final s = _stat(t);
+    s.skips++;
+    s.last = _now;
+    _changed();
+  }
+
+  /// Любимые исполнители, самые любимые первыми: прослушивания до конца, лайки и свежесть
+  /// минус пропуски. Исполнители из «Скрытого» сюда не попадают.
+  List<String> topArtists([int n = 8]) {
+    final score = <String, double>{};
+    final names = <String, String>{};
+    void add(String name, double v) {
+      final k = artistKey(name);
+      if (k.isEmpty) return;
+      names.putIfAbsent(k, () => _primaryName(name));
+      score[k] = (score[k] ?? 0) + v;
+    }
+
+    final now = _now;
+    for (final e in artists.entries) {
+      names[e.key] = e.value.name;
+      // свежие события весят больше: через месяц вклад падает примерно вдвое
+      final ageDays = (now - e.value.last) / 86400000;
+      final fresh = 1 / (1 + ageDays / 30);
+      score[e.key] = (score[e.key] ?? 0) + (e.value.plays - 1.5 * e.value.skips) * (0.5 + fresh);
+    }
+    for (final t in liked.tracks.take(100)) {
+      add(t.artist, 3);
+    }
+    for (final (i, t) in history.take(60).indexed) {
+      add(t.artist, 1 - i / 60);
+    }
+    final bad = dislikedArtists;
+    final keys = score.keys.where((k) => score[k]! > 0 && !bad.contains(k)).toList()
+      ..sort((a, b) => score[b]!.compareTo(score[a]!));
+    return [for (final k in keys.take(n)) names[k]!];
+  }
+
+  /// Исполнителя часто пропускают — в радио его лучше не ставить.
+  bool oftenSkipped(String artist) {
+    final s = artists[artistKey(artist)];
+    return s != null && s.skips >= 3 && s.skips > 2 * s.plays;
   }
 
   void _changed() {
@@ -213,13 +362,134 @@ class Library extends ChangeNotifier {
     _saveTimer = Timer(const Duration(seconds: 1), _save);
   }
 
+  Map<String, dynamic> toJson() => {
+        'version': 2,
+        'playlists': playlists.map((p) => p.toJson()).toList(),
+        'history': history.map((t) => t.toJson()).toList(),
+        'disliked': disliked.map((t) => t.toJson()).toList(),
+        'stamps': stamps,
+        'deleted': deletedPlaylists,
+        'historyAt': historyAt,
+        'artists': {for (final e in artists.entries) e.key: e.value.toJson()},
+      };
+
   Future<void> _save() async {
-    final data = jsonEncode({
-      'version': 1,
-      'playlists': playlists.map((p) => p.toJson()).toList(),
-      'history': history.map((t) => t.toJson()).toList(),
-      'disliked': disliked.map((t) => t.toJson()).toList(),
-    });
-    await _store.write(data);
+    await _store.write(jsonEncode(toJson()));
+    onSaved?.call();
   }
+
+  /// Заменить содержимое версией после слияния с облаком.
+  void replaceWith(Map<String, dynamic> j) {
+    playlists
+      ..clear()
+      ..addAll(_each(j['playlists'], (p) => Playlist.fromJson(Map<String, dynamic>.from(p))));
+    history
+      ..clear()
+      ..addAll(_each(j['history'], (t) => Track.fromJson(Map<String, dynamic>.from(t))));
+    disliked
+      ..clear()
+      ..addAll(_each(j['disliked'], (t) => Track.fromJson(Map<String, dynamic>.from(t))));
+    stamps.clear();
+    deletedPlaylists.clear();
+    historyAt.clear();
+    artists.clear();
+    _readMeta(j);
+    _ensureLiked();
+    _changed();
+  }
+
+  /// Слить две версии библиотеки (эта и из облака) так, чтобы ничего не потерялось:
+  /// у каждого плейлиста и «Скрытого» побеждает более свежая версия, удалённые плейлисты
+  /// остаются удалёнными, история объединяется по времени прослушивания, счётчики — по максимуму.
+  static Map<String, dynamic> merge(Map<String, dynamic> a, Map<String, dynamic> b) {
+    Map<String, int> maxMap(Map<String, int> x, Map<String, int> y) {
+      final out = Map.of(x);
+      y.forEach((k, v) => out[k] = (out[k] ?? v) > v ? out[k]! : v);
+      return out;
+    }
+
+    List list(dynamic v) => v is List ? v : const [];
+
+    final stA = _ints(a['stamps']), stB = _ints(b['stamps']);
+    final stamps = maxMap(stA, stB);
+    final deleted = maxMap(_ints(a['deleted']), _ints(b['deleted']));
+
+    // плейлисты: порядок — как в первой версии, новые из второй — в конец
+    final plA = {for (final p in list(a['playlists'])) '${p['id']}': p};
+    final plB = {for (final p in list(b['playlists'])) '${p['id']}': p};
+    final ids = [...plA.keys, ...plB.keys.where((k) => !plA.containsKey(k))];
+    final playlists = <dynamic>[];
+    for (final id in ids) {
+      final ta = stA['pl:$id'] ?? 0, tb = stB['pl:$id'] ?? 0;
+      final p = plA[id] == null
+          ? plB[id]
+          : plB[id] == null
+              ? plA[id]
+              : (tb > ta ? plB[id] : plA[id]);
+      final changed = ta > tb ? ta : tb;
+      // удалён позже последнего изменения — значит, удалён («Любимое» удалить нельзя)
+      if (id != likedId && (deleted[id] ?? 0) > changed) continue;
+      playlists.add(p);
+    }
+    for (final id in deleted.keys) {
+      if ((deleted[id] ?? 0) > (stamps['pl:$id'] ?? 0)) stamps.remove('pl:$id');
+    }
+
+    final disliked = (stB['disliked'] ?? 0) > (stA['disliked'] ?? 0) ? list(b['disliked']) : list(a['disliked']);
+
+    // история: объединение по времени прослушивания
+    final at = maxMap(_ints(a['historyAt']), _ints(b['historyAt']));
+    final byKey = <String, dynamic>{};
+    for (final t in [...list(a['history']), ...list(b['history'])]) {
+      byKey.putIfAbsent('${t['source']}:${t['id']}', () => t);
+    }
+    final keys = byKey.keys.toList()..sort((x, y) => (at[y] ?? 0).compareTo(at[x] ?? 0));
+    final kept = keys.take(historyLimit).toList();
+
+    // статистика исполнителей: по максимуму (счётчики только растут)
+    final arts = <String, dynamic>{};
+    for (final src in [a['artists'], b['artists']]) {
+      if (src is! Map) continue;
+      for (final e in src.entries) {
+        final v = Map<String, dynamic>.from(e.value as Map);
+        final old = arts['${e.key}'] as Map<String, dynamic>?;
+        if (old == null) {
+          arts['${e.key}'] = v;
+          continue;
+        }
+        int mx(String f) {
+          final x = (old[f] as num?)?.toInt() ?? 0, y = (v[f] as num?)?.toInt() ?? 0;
+          return x > y ? x : y;
+        }
+
+        arts['${e.key}'] = {'n': old['n'] ?? v['n'], 'p': mx('p'), 's': mx('s'), 't': mx('t')};
+      }
+    }
+
+    return {
+      'version': 2,
+      'playlists': playlists,
+      'history': [for (final k in kept) byKey[k]],
+      'disliked': disliked,
+      'stamps': stamps,
+      'deleted': deleted,
+      'historyAt': {for (final k in kept) if (at[k] != null) k: at[k]},
+      'artists': arts,
+    };
+  }
+}
+
+/// Сколько раз исполнителя дослушали и пропустили.
+class ArtistStat {
+  final String name;
+  int plays;
+  int skips;
+  int last; // мс, последнее событие
+  ArtistStat(this.name, {this.plays = 0, this.skips = 0, this.last = 0});
+
+  Map<String, dynamic> toJson() => {'n': name, 'p': plays, 's': skips, 't': last};
+  factory ArtistStat.fromJson(Map<String, dynamic> j) => ArtistStat('${j['n'] ?? ''}',
+      plays: (j['p'] as num?)?.toInt() ?? 0,
+      skips: (j['s'] as num?)?.toInt() ?? 0,
+      last: (j['t'] as num?)?.toInt() ?? 0);
 }

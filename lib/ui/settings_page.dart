@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/track.dart';
 import '../services/app_services.dart';
 import '../services/keys.dart';
+import '../services/sync.dart';
 import '../sources/net.dart';
 import '../sources/zvuk.dart';
 import '../version.dart';
@@ -76,6 +77,8 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Настройки')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        const AccountSection(),
+        const Divider(height: 32),
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: const Icon(Icons.equalizer),
@@ -324,6 +327,103 @@ class _SettingsPageState extends State<SettingsPage> {
               style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
         ),
       ]),
+    );
+  }
+}
+
+/// Аккаунт Google и синхронизация медиатеки между устройствами.
+class AccountSection extends StatelessWidget {
+  const AccountSection({super.key});
+
+  String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inSeconds < 60) return 'только что';
+    if (d.inMinutes < 60) return '${d.inMinutes} мин назад';
+    return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final h = Theme.of(context).textTheme.titleMedium;
+    final sync = app.sync;
+    if (!SyncService.configured) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Аккаунт и синхронизация', style: h),
+        const SizedBox(height: 6),
+        const Text(
+          'В этой сборке синхронизация не включена. Владельцу сборки: см. docs/SYNC.md в репозитории.',
+          style: TextStyle(color: AppColors.textDim),
+        ),
+      ]);
+    }
+    return ListenableBuilder(
+      listenable: sync,
+      builder: (context, _) {
+        void toast(String s) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
+        if (!sync.signedIn) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Аккаунт и синхронизация', style: h),
+            const SizedBox(height: 6),
+            const Text(
+              'Войди через Google — плейлисты, «Любимое», история и твой вкус для «Моей волны» '
+              'будут одинаковыми на телефоне, ПК и в браузере.',
+              style: TextStyle(color: AppColors.textDim),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              icon: const Icon(Icons.account_circle),
+              label: const Text('Войти через Google'),
+              onPressed: () async {
+                try {
+                  await sync.signIn();
+                } catch (e) {
+                  toast('Не удалось войти: ${SyncService.describe(e)}');
+                }
+              },
+            ),
+            if (sync.error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(sync.error!, style: const TextStyle(color: Colors.redAccent)),
+              ),
+          ]);
+        }
+        final avatar = sync.avatarUrl;
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: CircleAvatar(
+              backgroundImage: avatar == null ? null : NetworkImage(avatar),
+              child: avatar == null ? const Icon(Icons.person) : null,
+            ),
+            title: Text(sync.userName.isEmpty ? 'Аккаунт Google' : sync.userName, style: h),
+            subtitle: Text([
+              if (sync.userEmail != null && sync.userEmail != sync.userName) sync.userEmail!,
+              sync.busy
+                  ? 'Синхронизация…'
+                  : sync.error != null
+                      ? 'Ошибка: ${sync.error}'
+                      : sync.lastSync == null
+                          ? 'Ещё не синхронизировано'
+                          : 'Синхронизировано ${_ago(sync.lastSync!)}',
+            ].join('\n')),
+          ),
+          Wrap(spacing: 8, children: [
+            OutlinedButton.icon(
+              icon: const Icon(Icons.sync),
+              label: const Text('Синхронизировать'),
+              onPressed: sync.busy ? null : sync.syncNow,
+            ),
+            TextButton(
+              onPressed: () async {
+                await sync.signOut();
+                toast('Вышли из аккаунта. Медиатека на этом устройстве осталась.');
+              },
+              child: const Text('Выйти'),
+            ),
+          ]),
+        ]);
+      },
     );
   }
 }

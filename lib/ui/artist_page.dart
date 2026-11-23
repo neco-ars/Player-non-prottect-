@@ -90,7 +90,7 @@ class _ArtistPageState extends State<ArtistPage> {
             IconButton(
               tooltip: 'Радио исполнителя',
               icon: const Icon(Icons.radio, color: AppColors.textDim),
-              onPressed: top.isEmpty ? null : () => app.player.startRadio(top.first),
+              onPressed: () => app.player.startArtistRadio(a.ref.name, sample: top.firstOrNull),
             ),
             IconButton(
               tooltip: 'Вперемешку',

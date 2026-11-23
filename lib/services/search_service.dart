@@ -47,7 +47,7 @@ class SearchService {
 
     void emit() {
       final pending = [for (var i = 0; i < active.length; i++) if (lists[i] == null) active[i].name];
-      ctrl.add(SearchResult(_group(lists.whereType<List<Track>>().toList()), Map.of(errors), pending: pending));
+      ctrl.add(SearchResult(rank(query, group(lists.whereType<List<Track>>().toList())), Map.of(errors), pending: pending));
       if (pending.isEmpty) ctrl.close();
     }
 
@@ -86,7 +86,7 @@ class SearchService {
 
   /// Объединяем версии одной песни из разных источников.
   /// Порядок групп: по первому появлению, источники чередуются, чтобы ни один не забивал выдачу.
-  static List<TrackGroup> _group(List<List<Track>> lists) {
+  static List<TrackGroup> group(List<List<Track>> lists) {
     final groups = <String, List<Track>>{};
     final maxLen = lists.fold<int>(0, (m, l) => l.length > m ? l.length : m);
     for (var i = 0; i < maxLen; i++) {
@@ -97,6 +97,44 @@ class SearchService {
     return groups.values.map((v) => TrackGroup(v)).toList();
   }
 }
+
+/// Порядок выдачи по смыслу, как у больших сервисов: сначала то, где есть все слова запроса
+/// (в исполнителе и названии), точные совпадения, и песни, найденные сразу на нескольких площадках
+/// (признак популярности). Каверы, ремиксы и «speed up», которых не просили, — ниже.
+/// При равенстве сохраняется порядок площадок.
+List<TrackGroup> rank(String query, List<TrackGroup> groups) {
+  final q = Track.normalize(query);
+  if (q.isEmpty || groups.length < 2) return groups;
+  final words = q.split(' ').where((w) => w.isNotEmpty).toList();
+  final qc = q.replaceAll(' ', '');
+  final wantsCut = _cut.hasMatch(query);
+
+  double score(TrackGroup g) {
+    final t = g.main;
+    final title = Track.normalize(t.title), artist = Track.normalize(t.artist);
+    final hay = '$artist $title';
+    final hayc = hay.replaceAll(' ', '');
+    final found = words.where((w) => hay.contains(w) || hayc.contains(w)).length;
+    var s = 10.0 * found / words.length;
+    if (title == q || hay == q || '$title $artist' == q || hayc == qc) s += 4;
+    if (artist == q) s += 2; // искали исполнителя — его песни выше
+    s += 0.6 * (g.variants.length.clamp(1, 4) - 1);
+    if (!wantsCut && _cut.hasMatch(t.title)) s -= 3;
+    if (t.previewOnly) s -= 1;
+    return s;
+  }
+
+  final scored = [for (final (i, g) in groups.indexed) (g, score(g), i)];
+  // крупные ступени, чтобы не ломать чередование площадок из-за мелочей
+  scored.sort((a, b) {
+    final c = (b.$2 / 2).floor().compareTo((a.$2 / 2).floor());
+    return c != 0 ? c : a.$3.compareTo(b.$3);
+  });
+  return [for (final e in scored) e.$1];
+}
+
+final _cut = RegExp(r'remix|ремикс|slowed|sped ?up|speed ?up|nightcore|cover|кавер|instrumental|минус|karaoke|караоке',
+    caseSensitive: false);
 
 /// Площадка, которой больше нет в приложении.
 class RemovedSource extends MusicSource {

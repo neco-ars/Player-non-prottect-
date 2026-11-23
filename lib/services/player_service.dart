@@ -46,6 +46,10 @@ class PlayerService extends ChangeNotifier {
   bool radio = false;
   bool _extending = false;
 
+  /// С чего началось радио (трек, исполнитель или «Моя волна») и что в нём дослушали/пропустили.
+  RadioSeed? radioSeed;
+  RadioSession _session = RadioSession();
+
   final _videoRequests = StreamController<Track>.broadcast();
   Stream<Track> get videoRequests => _videoRequests.stream;
 
@@ -88,7 +92,30 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> _onCompleted() async {
     // сюда попадаем, только если следующий не был подготовлен заранее
-    await next();
+    await next(user: false);
+  }
+
+  // ---------- сигналы вкуса ----------
+  // Дослушал (или больше половины) — плюс исполнителю, пропустил в первые 30 секунд — минус.
+  // Из этого строятся «Моя волна», подборки главной, и радио подстраивается на ходу.
+
+  void _listened(Track t) {
+    if (t.isVideo) return;
+    library.recordPlay(t);
+    _session.play(t);
+  }
+
+  /// Пользователь сам переключил трек дальше — смотрим, сколько он успел послушать.
+  void _leftEarly(Track t) {
+    if (t.isVideo || loading) return;
+    final pos = player.position;
+    final dur = player.duration ?? t.duration;
+    if (pos < const Duration(seconds: 30) && (dur == null || dur > const Duration(seconds: 60))) {
+      library.recordSkip(t);
+      _session.skip(t);
+    } else if (dur != null && dur > Duration.zero && pos.inMilliseconds >= dur.inMilliseconds * 0.5) {
+      _listened(t);
+    }
   }
 
   void cycleRepeat() {
@@ -136,11 +163,18 @@ class PlayerService extends ChangeNotifier {
     if (radio && _index + 1 >= _queue.length) await _extendRadio();
     final ni = _nextIndex;
     if (ni == null) return;
-    final t = _queue[ni];
+    var t = _queue[ni];
     if (t.isVideo || t.previewOnly) return; // видео и превью — обычным путём
     _preloading = true;
     final cur = current;
     try {
+      if (t.isPick) {
+        // песня из рекомендаций: сначала находим её на площадках
+        final found = await recs.resolve(t);
+        if (found == null || current != cur || _nextIndex != ni || _queue[ni] != t) return;
+        _queue[ni] = t = found;
+        notifyListeners();
+      }
       final info = await _stream(t);
       // пока ждали, могли переключить трек или поменять очередь
       if (current != cur || _playlist == null || _preloaded != null || _nextIndex != ni || _queue[ni] != t) return;
@@ -168,6 +202,8 @@ class PlayerService extends ChangeNotifier {
   Future<void> _onIndexChanged(int? idx) async {
     if (idx != 1 || _preloaded == null) return;
     final t = _preloaded!;
+    final prev = current;
+    if (prev != null) _listened(prev); // предыдущий доиграл до конца
     _index = _preloadedIndex;
     _preloaded = null;
     _preloadedIndex = -1;
@@ -217,11 +253,14 @@ class PlayerService extends ChangeNotifier {
   bool get hasNext => _index + 1 < _queue.length || radio || (repeat == Repeat.all && _queue.isNotEmpty);
   bool get hasPrev => _index > 0;
 
-  Future<void> playQueue(List<Track> tracks, int start, {bool radio = false, bool shuffled = false}) async {
+  Future<void> playQueue(List<Track> tracks, int start,
+      {bool radio = false, bool shuffled = false, RadioSeed? seed}) async {
     if (tracks.isEmpty) return; // нечего играть — не трогаем текущую очередь
     start = start.clamp(0, tracks.length - 1);
     _queue = List.of(tracks);
     this.radio = radio;
+    radioSeed = radio ? (seed ?? RadioSeed.track(tracks[start])) : null;
+    _session = RadioSession();
     shuffle = false;
     _unshuffled = null;
     if (shuffled) {
@@ -234,9 +273,35 @@ class PlayerService extends ChangeNotifier {
 
   /// Радио по треку: играем его, дальше — похожие.
   Future<void> startRadio(Track seed) async {
-    await playQueue([seed], 0, radio: true);
+    await playQueue([seed], 0, radio: true, seed: RadioSeed.track(seed));
     unawaited(_extendRadio());
   }
+
+  /// Радио исполнителя или «Моя волна»: сначала подбираем первую порцию, потом играем.
+  bool radioStarting = false;
+  Future<void> startRadioFrom(RadioSeed seed) async {
+    if (seed.kind == RadioKind.track && seed.track != null) return startRadio(seed.track!);
+    radioStarting = true;
+    error = null;
+    notifyListeners();
+    try {
+      final first = await recs.radioBatch(seed, const {}, session: RadioSession(), want: 6);
+      if (first.isEmpty) {
+        error = 'Не получилось подобрать треки для «${seed.title}» — проверь интернет и попробуй ещё раз';
+        return;
+      }
+      await playQueue(first, 0, radio: true, seed: seed);
+      unawaited(_extendRadio());
+    } finally {
+      radioStarting = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> startArtistRadio(String artist, {Track? sample}) =>
+      startRadioFrom(RadioSeed.artist(artist, sample: sample));
+
+  Future<void> startWave() => startRadioFrom(RadioSeed.wave);
 
   void playNext(Track t) {
     if (current == null) {
@@ -258,7 +323,10 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> next() async {
+  /// [user] — переключил сам человек (кнопка, свайп, гарнитура), а не трек доиграл.
+  Future<void> next({bool user = true}) async {
+    final cur = current;
+    if (cur != null) user ? _leftEarly(cur) : _listened(cur);
     // следующий уже подготовлен — переключаемся мгновенно
     if (_preloaded != null && _preloadedIndex == _nextIndex && player.hasNext) {
       await player.seekToNext();
@@ -344,6 +412,8 @@ class PlayerService extends ChangeNotifier {
 
   void setRadio(bool on) {
     radio = on;
+    if (on && radioSeed == null && current != null) radioSeed = RadioSeed.track(current!);
+    if (!on) radioSeed = null;
     notifyListeners();
     if (on) unawaited(_extendRadio());
   }
@@ -397,7 +467,7 @@ class PlayerService extends ChangeNotifier {
 
   /// Официальный плеер YouTube сообщил, что ролик закончился.
   void videoEnded(Track t) {
-    if (current == t) next();
+    if (current == t) next(user: false);
   }
 
   Future<void> _extendRadio() async {
@@ -405,7 +475,7 @@ class PlayerService extends ChangeNotifier {
     _extending = true;
     try {
       final exclude = {for (final t in _queue) ...[t.key, t.matchKey]};
-      final more = await recs.radioBatch(_queue.last, exclude);
+      final more = await recs.radioBatch(radioSeed ?? RadioSeed.track(_queue.last), exclude, session: _session);
       if (more.isNotEmpty) {
         _queue.addAll(more);
         notifyListeners();
@@ -416,6 +486,12 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<Track> _resolveFull(Track t) async {
+    if (t.isPick) {
+      // песня из рекомендаций — находим её на площадках
+      final found = await recs.resolve(t);
+      if (found == null) throw Exception('не нашёл эту песню на площадках');
+      return found;
+    }
     if (!t.previewOnly) return t;
     // для превью (SoundCloud Go+) ищем полную версию на других площадках
     return await _alternative(t) ?? t;
