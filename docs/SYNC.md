@@ -44,7 +44,7 @@
    - **Site URL**: `https://neco-ars.github.io/Player-non-prottect-/`
    - **Redirect URLs** → **Add URL**, по одной:
      - `https://neco-ars.github.io/Player-non-prottect-/` — веб-версия
-     - `com.musicplayer.music_player://login-callback` — Android
+     - `io.github.necoars.musicplayer://login-callback` — Android
      - `http://localhost:*/**` — Windows (вход через браузер с возвратом в приложение)
    - **Save**.
 

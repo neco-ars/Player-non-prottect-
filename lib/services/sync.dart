@@ -22,7 +22,7 @@ class SyncService extends ChangeNotifier {
   static bool get configured => _url.isNotEmpty && _key.isNotEmpty;
 
   /// Куда Google вернёт человека после входа в приложении для Android.
-  static const mobileRedirect = 'com.musicplayer.music_player://login-callback';
+  static const mobileRedirect = 'io.github.necoars.musicplayer://login-callback';
 
   final Library library;
   SyncService(this.library);
