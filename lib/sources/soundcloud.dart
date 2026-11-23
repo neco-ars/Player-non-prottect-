@@ -228,6 +228,22 @@ class SoundCloudSource extends MusicSource {
     return res.statusCode == 200 ? _parseList(res.body) : [];
   }
 
+  /// Станция трека — то, что сам SoundCloud играет в «радио по треку»:
+  /// похожие по прослушиваниям его слушателей, а не только песни того же автора.
+  @override
+  Future<List<Track>> station(Track track) async {
+    if (track.source != id) return [];
+    final res = await _get(
+        'https://api-v2.soundcloud.com/stations/soundcloud:track-stations:${track.id}/tracks', {'limit': '50'});
+    if (res.statusCode != 200) return [];
+    final body = jsonDecode(res.body);
+    final list = body is Map ? body['collection'] : body;
+    return [
+      for (final t in (list as List? ?? const []).whereType<Map>())
+        if (_parse(t) case final x?) x,
+    ];
+  }
+
   @override
   Future<StreamInfo> streamUrl(Track track) async {
     try {

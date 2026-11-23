@@ -70,6 +70,22 @@ class TasteGraph {
     return null;
   }
 
+  /// Исполнитель по его песне — надёжнее, чем по имени: однофамильца с такой же песней не бывает.
+  /// null — песни в Deezer нет.
+  Future<TasteArtist?> artistForTrack(String artist, String title) async {
+    final want = _compact(artist.split(RegExp(r',|&| feat\.? | ft\.? ', caseSensitive: false)).first);
+    if (want.isEmpty || title.trim().isEmpty) return null;
+    final wantTitle = _compact(title);
+    final j = await _get('/search', {'q': 'artist:"$artist" track:"$title"', 'limit': '10'});
+    for (final t in (j['data'] as List? ?? const [])) {
+      final a = t['artist'];
+      if (a == null || _compact(a['name'] ?? '') != want) continue;
+      final tt = _compact(t['title_short'] ?? t['title'] ?? '');
+      if (tt.contains(wantTitle) || wantTitle.contains(tt)) return _artist(a);
+    }
+    return null;
+  }
+
   Future<List<TasteArtist>> related(int artistId) async {
     final j = await _get('/artist/$artistId/related', {'limit': '25'});
     return [for (final a in (j['data'] as List? ?? const [])) _artist(a)];

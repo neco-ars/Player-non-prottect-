@@ -130,12 +130,9 @@ class _SearchPageState extends State<SearchPage> {
     return _explicitOnly ? g.where((x) => x.anyExplicit).toList() : g;
   }
 
-  void _play(TrackGroup group, Track variant) {
-    // очередь: выбранная версия, дальше — основные версии следующих песен
-    final groups = _groups;
-    final i = groups.indexOf(group);
-    app.player.playQueue([variant, ...groups.skip(i + 1).map((g) => g.main)], 0);
-  }
+  /// Как у больших сервисов: выбранная песня, а дальше — радио по ней (похожая музыка),
+  /// а не остаток выдачи поиска с перезаливами той же песни.
+  void _play(TrackGroup group, Track variant) => app.player.startRadio(variant);
 
   Future<void> _openSettings() async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()));

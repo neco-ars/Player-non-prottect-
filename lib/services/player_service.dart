@@ -410,9 +410,16 @@ class PlayerService extends ChangeNotifier {
     }
   }
 
+  /// Кнопка «Радио»: дальше играет радио по текущему треку, а не остаток старой очереди
+  /// (например, выдачи поиска).
   void setRadio(bool on) {
     radio = on;
-    if (on && radioSeed == null && current != null) radioSeed = RadioSeed.track(current!);
+    if (on && current != null) {
+      radioSeed = RadioSeed.track(current!);
+      _session = RadioSession();
+      _queue = _queue.take(_index + 1).toList();
+      _dropPreload();
+    }
     if (!on) radioSeed = null;
     notifyListeners();
     if (on) unawaited(_extendRadio());

@@ -1,2 +1,2 @@
-﻿/// Р’РµСЂСЃРёСЏ РїСЂРёР»РѕР¶РµРЅРёСЏ. РњРµРЅСЏР№ РІРјРµСЃС‚Рµ СЃ `version:` РІ pubspec.yaml.
-const appVersion = '0.17.4';
+﻿/// Версия приложения. Меняй вместе с `version:` в pubspec.yaml.
+const appVersion = '0.17.5';

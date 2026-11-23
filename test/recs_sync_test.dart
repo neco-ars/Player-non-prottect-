@@ -42,6 +42,9 @@ class FakeGraph extends TasteGraph {
   }
 
   @override
+  Future<TasteArtist?> artistForTrack(String artist, String title) => findArtist(artist);
+
+  @override
   Future<List<Track>> artistRadio(int artistId) async => List.of(radios[_names[artistId]] ?? const []);
   @override
   Future<List<Track>> artistTop(int artistId, {int limit = 10}) async =>
@@ -51,6 +54,14 @@ class FakeGraph extends TasteGraph {
       [for (final r in rel[_names[artistId]] ?? const <String>[]) TasteArtist(_id(r), r, null)];
   @override
   Future<List<Track>> chart() async => broken ? throw Exception('нет') : [];
+}
+
+/// SoundCloud с «станцией трека».
+class FakeSoundCloud extends FakeSource {
+  final List<Track> stationTracks;
+  FakeSoundCloud({super.results, this.stationTracks = const []}) : super('soundcloud');
+  @override
+  Future<List<Track>> station(Track track) async => stationTracks;
 }
 
 /// Площадка, где по запросу «исполнитель название» находится ровно эта песня.
@@ -124,6 +135,32 @@ void main() {
         // подряд — только если иначе никак
         if (same) expect(batch.skip(i).every((x) => x.artist == batch[i].artist), isTrue);
       }
+    });
+
+    test('радио по треку со станции SoundCloud: без перезаливов, минусовок и не больше четверти от исполнителя',
+        () async {
+      Duration s(int x) => Duration(seconds: x);
+      final seedSc = t('soundcloud', 'seed', 'die!', 'die! - BESTGORE', duration: s(101));
+      final station = [
+        for (var i = 0; i < 8; i++) t('soundcloud', 'own$i', 'die!', 'own song $i', duration: s(150)),
+        t('soundcloud', 'r1', 'randomguy', 'die! - own song 0', duration: s(150)), // перезалив
+        t('soundcloud', 'r2', 'noname', 'own song 1', duration: s(150)), // перезалив без имени
+        t('soundcloud', 'm1', 'Machine Girl', 'Ghost', duration: s(180)),
+        t('soundcloud', 'm2', 'Machine Girl', 'Ghost (instrumental)', duration: s(180)),
+        t('soundcloud', 'k1', 'Kero Kero Bonito', 'Flamingo', duration: s(170)),
+        t('soundcloud', 'p1', 'PLAYDATE', 'ALTERNATIVE', duration: s(160)),
+        t('soundcloud', 'set', 'DJ', 'Live set 2015', duration: const Duration(minutes: 58)),
+      ];
+      final sc = FakeSoundCloud(results: {'die! BESTGORE': [seedSc]}, stationTracks: station);
+      final r = recs([sc], Library.memory(), FakeGraph());
+      final seed = t('zvuk', 'z', 'die!', 'BESTGORE (prod by blindcavegoblin)', duration: s(101));
+      final batch = await r.radioBatch(RadioSeed.track(seed), {seed.key}, want: 8);
+      final titles = batch.map((x) => x.title).toList();
+      expect(batch.where((x) => Recommendations.trueArtist(x) == 'die!').length, lessThanOrEqualTo(2));
+      expect(titles, contains('Ghost'));
+      expect(titles, contains('Flamingo'));
+      expect(titles.any((x) => x.contains('instrumental') || x.contains('Live set')), isFalse);
+      expect(batch.map(Recommendations.titleKey).toSet().length, batch.length); // ни одной песни дважды
     });
 
     test('исполнитель, которого в этом радио пропустили дважды, больше не попадается', () async {
