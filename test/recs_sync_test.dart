@@ -169,6 +169,8 @@ void main() {
         for (var i = 0; i < 8; i++) t('soundcloud', 'own$i', 'die!', 'own song $i', duration: s(150)),
         t('soundcloud', 'r1', 'randomguy', 'die! - own song 0', duration: s(150)), // перезалив
         t('soundcloud', 'r2', 'noname', 'own song 1', duration: s(150)), // перезалив без имени
+        t('soundcloud', 'r3', 'ati_hell', 'die! STAY SAFE', duration: s(150)), // перезалив без дефиса
+        t('soundcloud', 'r4', 'ati_hell', 'die! Ржавая молодость', duration: s(150)),
         t('soundcloud', 'm1', 'Machine Girl', 'Ghost', duration: s(180)),
         t('soundcloud', 'm2', 'Machine Girl', 'Ghost (instrumental)', duration: s(180)),
         t('soundcloud', 'k1', 'Kero Kero Bonito', 'Flamingo', duration: s(170)),
@@ -180,7 +182,8 @@ void main() {
       final seed = t('zvuk', 'z', 'die!', 'BESTGORE (prod by blindcavegoblin)', duration: s(101));
       final batch = await r.radioBatch(RadioSeed.track(seed), {seed.key}, want: 8);
       final titles = batch.map((x) => x.title).toList();
-      expect(batch.where((x) => Recommendations.trueArtist(x) == 'die!').length, lessThanOrEqualTo(2));
+      expect(batch.where((x) => Recommendations.trueArtist(x) == 'die!' || x.title.contains('die!')).length,
+          lessThanOrEqualTo(2));
       expect(titles, contains('Ghost'));
       expect(titles, contains('Flamingo'));
       expect(titles.any((x) => x.contains('instrumental') || x.contains('Live set')), isFalse);
@@ -270,11 +273,17 @@ void main() {
       expect(t['metalcore'], 0.7); // жанр Звука по-русски
     });
 
-    test('похожесть: одно и то же — 1, ничего общего — 0', () {
-      final a = TagService.normalize({'deathcore': 1.0});
-      expect(TagService.similarity(a, a), closeTo(1, 1e-9));
-      expect(TagService.similarity(a, TagService.normalize({'k-pop': 1.0})), 0);
-      expect(TagService.similarity(a, const {}), 0);
+    test('похожесть: одно и то же — 1, ничего общего — 0, общий жанр — почти ничего', () {
+      final k = TagService.normalize({'k-pop': 1.0});
+      expect(TagService.similarity(k, k), closeTo(1, 1e-9));
+      final d = TagService.normalize({'deathcore': 1.0});
+      expect(TagService.similarity(d, d), greaterThan(0.7));
+      expect(TagService.similarity(d, k), 0);
+      expect(TagService.similarity(d, const {}), 0);
+      // у LAZZY2WICE и у Tame Impala одинаково «alternative rock» — это не похожесть
+      final seed = TagService.normalize({'alternative rock': 1.0, 'rap': 0.6, 'metal': 0.5});
+      final tame = TagService.normalize({'alternative rock': 1.0, 'rock': 0.6});
+      expect(TagService.similarity(seed, tame), lessThan(0.15));
     });
 
     test('радио по треку у любителя металла: тяжёлое выше, хотя песня — рэп', () async {

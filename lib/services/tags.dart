@@ -175,13 +175,28 @@ class TagService {
 
   static double _norm(Tags a) => sqrt(a.values.fold<double>(0, (s, v) => s + v * v));
 
-  /// Косинусная похожесть наборов тегов: 0 — ничего общего, 1 — одно и то же.
+  /// Общие жанры: они есть у тысяч непохожих исполнителей (у LAZZY2WICE и у Tame Impala
+  /// одинаково «alternative rock»), поэтому почти ничего не говорят о похожести.
+  static const _broadTags = {
+    'russian', 'english', 'korean', 'pop', 'rock', 'alternative rock', 'alternative', 'indie', 'indie rock',
+    'hip-hop', 'rap', 'russian rap', 'rnb', 'electronic', 'dance', 'hard rock', 'metal', 'punk', 'soul',
+    'russian pop', 'russian rock', 'singer-songwriter', 'acoustic', 'soundtrack',
+  };
+
+  static bool isBroad(String tag) => _broadTags.contains(tag);
+
+  /// Вес тега в сравнении: точные (deathcore, trap metal, emo rap) — полный, общие — малый.
+  static double _idf(String tag) => _broadTags.contains(tag) ? 0.3 : 1.0;
+
+  /// Косинусная похожесть наборов тегов (общие жанры весят мало): 0 — ничего общего, 1 — одно и то же.
   static double similarity(Tags a, Tags b) {
     if (a.isEmpty || b.isEmpty) return 0;
+    // совпадение по общему жанру засчитывается с малым весом, а длины наборов — полные:
+    // два исполнителя, у которых общего только «rock», почти непохожи
     var dot = 0.0;
     for (final e in a.entries) {
       final w = b[e.key];
-      if (w != null) dot += e.value * w;
+      if (w != null) dot += e.value * w * _idf(e.key) * _idf(e.key);
     }
     final n = _norm(a) * _norm(b);
     return n == 0 ? 0 : dot / n;

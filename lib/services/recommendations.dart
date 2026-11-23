@@ -461,8 +461,6 @@ class Recommendations {
 
   // ---------- теги: куда целится радио ----------
 
-  /// Общие слова, которые ничего не говорят о звучании, — по ним кандидатов не ищем.
-  static const _broad = {'russian', 'english', 'korean', 'pop', 'rock', 'hip-hop', 'electronic', 'rap'};
 
   /// Рассчитать цель радио: смесь тегов стартовой песни (исполнителя, тега) и твоего профиля вкуса.
   /// Так после эмо-рэпа у любителя металла пойдёт то, что ближе к обоим (trap metal, металкор
@@ -518,14 +516,12 @@ class Recommendations {
     final order = seed.kind == RadioKind.tag
         ? [seed.artist]
         : [...bridges, ...TagService.top(seedTags, 4), ...TagService.top(like, 3)];
+    // только точные теги: поиск по «alternative rock» или «rap» приносит что угодно (Tame Impala, Стрыкало)
     final seen = <String>{};
     s.sourceTags = [
       for (final t in order)
-        if (!_broad.contains(t) && seen.add(t)) t,
+        if ((seed.kind == RadioKind.tag || !TagService.isBroad(t)) && seen.add(t)) t,
     ].take(4).toList();
-    if (s.sourceTags.isEmpty) {
-      s.sourceTags = [for (final t in order) if (seen.add('b:$t') && t != 'russian') t].take(2).toList();
-    }
   }
 
   /// Оценка кандидата: насколько его теги совпадают с целью радио, минус то, чего ты избегаешь.
@@ -597,16 +593,14 @@ class Recommendations {
           add('похожие исполнители (Звук/Last.fm)',
               _similarArtistsTracks(trueArtist(seedTrack),
                   zvukId: seedTrack.source == 'zvuk' ? seedTrack.artistId : null, artists: 6));
-          for (final t in session.sourceTags.take(2)) {
-            addTag(t);
-          }
+          // по жанрам здесь не ищем: только «кто слушает эту песню, слушает и…»
         } else {
-          // дрейф: от того, что в этом радио дослушали, и дальше по тегам
+          // дрейф: от того, что в этом радио дослушали
           add('станция дослушанного', _station(session.nextStationSeed(_rnd) ?? seedTrack));
           final liked = session.liked..shuffle(_rnd);
           add('радио Deezer', _graphRadio(liked.isNotEmpty ? liked.first : trueArtist(seedTrack)));
-          if (liked.isNotEmpty) add('похожие на дослушанных', _similarArtistsTracks(liked.first, artists: 4));
-          addRotatingTag();
+          add(liked.isNotEmpty ? 'похожие на дослушанных' : 'похожие исполнители (Звук/Last.fm)',
+              _similarArtistsTracks(liked.isNotEmpty ? liked.first : trueArtist(seedTrack), artists: 5));
         }
       case RadioKind.artist:
         final a = await _graphArtist(seed.artist, title: seed.track?.title);
@@ -619,7 +613,6 @@ class Recommendations {
         add('похожие исполнители (Звук/Last.fm)',
             _similarArtistsTracks(seed.artist,
                 zvukId: seed.track?.source == 'zvuk' ? seed.track!.artistId : null, artists: first ? 6 : 4));
-        if (!first) addRotatingTag();
       case RadioKind.wave:
         final top = library.topArtists(10);
         final bases = <String>[];
@@ -693,7 +686,17 @@ class Recommendations {
     session.excluded.addAll(exclude);
     await _aim(seed, session);
     final rep = session.report;
-    final seedArtist = seed.kind == RadioKind.wave ? '' : Library.artistKey(seed.artist);
+    final seedArtist = seed.kind == RadioKind.wave || seed.kind == RadioKind.tag ? '' : Library.artistKey(seed.artist);
+    final seedCompact = seedArtist.replaceAll(' ', '');
+    // чей трек: перезаливы вида «ati_hell — LAZZY2WICE STAY SAFE» — тоже песни самого исполнителя
+    String whose(Track t) {
+      final a = Library.artistKey(trueArtist(t));
+      if (seedCompact.length >= 3 && a != seedArtist &&
+          Track.normalize(t.title).replaceAll(' ', '').contains(seedCompact)) {
+        return seedArtist;
+      }
+      return a;
+    }
     // сколько песен самого исполнителя в порции
     final ownMax = switch (seed.kind) {
       RadioKind.artist => (want / 2).ceil(),
@@ -766,7 +769,7 @@ class Recommendations {
           soft.add(t);
           continue;
         }
-        final a = Library.artistKey(trueArtist(t));
+        final a = whose(t);
         final limit = a == seedArtist ? ownMax : 2;
         // найденное по тегам — не больше 2/3 порции: радио должно оставаться про эту песню
         final fromTag = seed.kind != RadioKind.wave && seed.kind != RadioKind.tag && origin[t.key] == 'tag';
@@ -794,7 +797,7 @@ class Recommendations {
       final per = <String, int>{};
       final cand = <Track>[];
       for (final t in rest) {
-        final a = Library.artistKey(trueArtist(t));
+        final a = whose(t);
         if ((per[a] ?? 0) + (perArtist[a] ?? 0) >= (a == seedArtist ? ownMax : 3)) continue;
         per[a] = (per[a] ?? 0) + 1;
         cand.add(t);
