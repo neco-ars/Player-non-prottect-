@@ -50,6 +50,9 @@ class PlayerService extends ChangeNotifier {
   RadioSeed? radioSeed;
   RadioSession _session = RadioSession();
 
+  /// Отчёт текущего радио: откуда треки и что отсеяно.
+  RadioReport get radioReport => _session.report;
+
   final _videoRequests = StreamController<Track>.broadcast();
   Stream<Track> get videoRequests => _videoRequests.stream;
 

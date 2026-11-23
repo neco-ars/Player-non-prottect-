@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../services/app_services.dart';
@@ -321,6 +322,15 @@ void showQueue(BuildContext context) {
                   ? TextButton(onPressed: () => app.player.setRadio(false), child: const Text('Выключить радио'))
                   : null,
             ),
+            if (app.player.radio)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.help_outline, size: 18),
+                  label: const Text('Почему эти треки'),
+                  onPressed: () => _showRadioReport(ctx),
+                ),
+              ),
             Expanded(
               child: ListView.builder(
                 controller: scroll,
@@ -387,4 +397,31 @@ class _SeekBarState extends State<_SeekBar> {
       },
     );
   }
+}
+
+/// Отчёт радио: откуда треки, с какими тегами, что отсеяно. Можно скопировать и прислать.
+void _showRadioReport(BuildContext context) {
+  final text = app.player.radioReport.text(app.player.radioSeed);
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Почему эти треки'),
+      content: SizedBox(
+        width: 560,
+        child: SingleChildScrollView(child: SelectableText(text, style: const TextStyle(fontSize: 12))),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: text));
+            if (ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Отчёт скопирован')));
+            }
+          },
+          child: const Text('Скопировать'),
+        ),
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Закрыть')),
+      ],
+    ),
+  );
 }

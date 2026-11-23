@@ -82,9 +82,15 @@ class RadioSession {
   /// Доля «похоже на песню» в оценке (остальное — «похоже на твой вкус»).
   double seedWeight = 0.5;
 
+  /// Отчёт «почему эти треки»: откуда сколько пришло и что отсеяно.
+  final RadioReport report = RadioReport();
+
   /// Откуда кандидат: seed — источники, похожие на саму песню (станция, похожие исполнители),
   /// tag — поиск по тегам, drift — от того, что ты дослушал в этом радио.
   final Map<String, String> origin = {};
+
+  /// Из какого источника пришёл кандидат (для отчёта).
+  final Map<String, String> labels = {};
 
   /// Теги, по которым добираем кандидатов (сначала «мостики» между песней и твоим вкусом).
   List<String> sourceTags = const [];
@@ -127,6 +133,41 @@ class RadioSession {
         for (final e in played.entries)
           if (e.value > (skipped[e.key] ?? 0)) names[e.key]!,
       ];
+}
+
+/// Отчёт радио: сколько кандидатов дал каждый источник и сколько отсеял каждый фильтр.
+class RadioReport {
+  final Map<String, int> sources = {};
+  final Map<String, int> dropped = {};
+  int given = 0;
+
+  /// Выданные треки: исполнитель — название | источник | теги | оценка.
+  final List<String> items = [];
+  List<String> lastTarget = const [], lastLike = const [], lastAvoid = const [], sourceTags = const [];
+
+  void count(String why) => dropped[why] = (dropped[why] ?? 0) + 1;
+
+  String text(RadioSeed? seed) {
+    String list(Map<String, int> m) {
+      final keys = m.keys.toList()..sort((a, b) => m[b]!.compareTo(m[a]!));
+      return keys.isEmpty ? '  —' : keys.map((k) => '  $k: ${m[k]}').join('\n');
+    }
+
+    return [
+      'Радио: ${seed?.title ?? '—'}',
+      'Выдано треков: $given',
+      'Теги песни: ${lastTarget.isEmpty ? 'нет' : lastTarget.join(', ')}',
+      'Твой вкус: ${lastLike.isEmpty ? 'пока нет данных' : lastLike.join(', ')}',
+      'Избегаешь: ${lastAvoid.isEmpty ? '—' : lastAvoid.join(', ')}',
+      'Добор по тегам: ${sourceTags.isEmpty ? '—' : sourceTags.join(', ')}',
+      'Источники (кандидатов):',
+      list(sources),
+      'Отсеяно:',
+      list(dropped),
+      'Треки (источник | теги | оценка):',
+      if (items.isEmpty) '  —' else ...items.reversed.take(40).toList().reversed.map((x) => '  $x'),
+    ].join('\n');
+  }
 }
 
 /// Рекомендации и радио.
@@ -337,25 +378,29 @@ class Recommendations {
     return true;
   }
 
-  /// Годится ли трек для радио вообще (без учёта повторов).
-  bool _fits(Track t, RadioSeed seed, RadioSession session) {
-    if (t.previewOnly || t.isVideo) return false;
+  /// Почему трек не годится для радио (null — годится). [relaxed] — мягкий проход:
+  /// исполнителей, которых ты часто пропускаешь, всё-таки можно.
+  String? _reject(Track t, RadioSeed seed, RadioSession session, {bool relaxed = false}) {
+    if (t.previewOnly || t.isVideo) return 'только фрагмент / видео';
     final artist = trueArtist(t);
-    if (!library.allowedInRecs(t) || library.dislikedArtists.contains(Library.artistKey(artist))) return false;
-    if (session.blocked(artist) || library.oftenSkipped(artist)) return false;
+    if (!library.allowedInRecs(t) || library.dislikedArtists.contains(Library.artistKey(artist))) {
+      return 'скрыто («Не нравится»)';
+    }
+    if (session.blocked(artist)) return 'пропущен в этом радио';
+    if (!relaxed && library.oftenSkipped(artist)) return 'часто пропускаешь исполнителя';
     final seedTitle = (seed.track?.title ?? '').toLowerCase();
     for (final m in _otherCut.allMatches(t.title)) {
-      if (!seedTitle.contains(m[0]!.toLowerCase())) return false;
+      if (!seedTitle.contains(m[0]!.toLowerCase())) return 'ремикс / минус / speed up';
     }
     final d = t.duration;
     if (d != null && d > Duration.zero && (d < const Duration(seconds: 50) || d > const Duration(minutes: 9))) {
-      return false; // обрывки и DJ-сеты
+      return 'обрывок или DJ-сет';
     }
     // арабская, индийская, тайская музыка с чужим жанром на SoundCloud — если сам такое не слушаешь
     if (_farScript.hasMatch('${t.title} ${t.artist}') && !_farScript.hasMatch(seedTitle) && !_listensFarScript()) {
-      return false;
+      return 'чужой язык';
     }
-    return true;
+    return null;
   }
 
   static final _farScript = RegExp(r'[֐-ۿऀ-ॿ฀-๿]');
@@ -447,7 +492,11 @@ class Recommendations {
       }
     } catch (_) {}
     final hasLike = like.isNotEmpty;
-    s.avoid = avoid;
+    // то, что есть у самой песни, не штрафуем: ты сам её выбрал
+    s.avoid = {
+      for (final e in avoid.entries)
+        if (!seedTags.containsKey(e.key)) e.key: e.value,
+    };
     s.seedTags = seedTags;
     s.like = like;
     s.seedWeight = switch (seed.kind) {
@@ -525,11 +574,14 @@ class Recommendations {
   Future<void> _refill(RadioSeed seed, RadioSession session) async {
     final first = session.fills == 0;
     session.fills++;
-    final parts = <Future<List<Track>>>[];
-    final tagParts = <Future<List<Track>>>{};
-    Future<List<Track>> tagged(Future<List<Track>> f) {
-      tagParts.add(f);
-      return f;
+    final parts = <(String, String, Future<List<Track>>)>[]; // (название источника, происхождение, треки)
+    void add(String label, Future<List<Track>> f, {String? origin}) =>
+        parts.add((label, origin ?? (first || seed.kind == RadioKind.tag ? 'seed' : 'drift'), f));
+    void addTag(String tag, {int page = 1}) => add('по тегу #$tag', _tagTracks(tag, page: page), origin: 'tag');
+    void addRotatingTag() {
+      if (session.sourceTags.isEmpty) return;
+      final i = session.fills % session.sourceTags.length;
+      addTag(session.sourceTags[i], page: 1 + session.fills ~/ session.sourceTags.length);
     }
 
     switch (seed.kind) {
@@ -537,31 +589,37 @@ class Recommendations {
         final seedTrack = seed.track!;
         if (first) {
           final a = await _graphArtist(trueArtist(seedTrack), title: seedTrack.title);
-          parts
-            ..add(_station(seedTrack))
-            ..add(a == null ? _none() : _safe(() => graph.artistRadio(a.id)))
-            ..add(a == null ? _none() : _relatedTopsOf(a, artists: 4, perArtist: 2))
-            ..add(_similarArtistsTracks(trueArtist(seedTrack),
-                zvukId: seedTrack.source == 'zvuk' ? seedTrack.artistId : null, artists: 6))
-            ..addAll([for (final t in session.sourceTags.take(2)) tagged(_tagTracks(t))]);
+          add('станция SoundCloud', _station(seedTrack));
+          if (a != null) {
+            add('радио Deezer', _safe(() => graph.artistRadio(a.id)));
+            add('похожие Deezer', _relatedTopsOf(a, artists: 4, perArtist: 2));
+          }
+          add('похожие исполнители (Звук/Last.fm)',
+              _similarArtistsTracks(trueArtist(seedTrack),
+                  zvukId: seedTrack.source == 'zvuk' ? seedTrack.artistId : null, artists: 6));
+          for (final t in session.sourceTags.take(2)) {
+            addTag(t);
+          }
         } else {
           // дрейф: от того, что в этом радио дослушали, и дальше по тегам
-          parts.add(_station(session.nextStationSeed(_rnd) ?? seedTrack));
+          add('станция дослушанного', _station(session.nextStationSeed(_rnd) ?? seedTrack));
           final liked = session.liked..shuffle(_rnd);
-          parts.add(_graphRadio(liked.isNotEmpty ? liked.first : trueArtist(seedTrack)));
-          if (liked.isNotEmpty) parts.add(_similarArtistsTracks(liked.first, artists: 4));
-          parts.add(tagged(_rotatingTag(session)));
+          add('радио Deezer', _graphRadio(liked.isNotEmpty ? liked.first : trueArtist(seedTrack)));
+          if (liked.isNotEmpty) add('похожие на дослушанных', _similarArtistsTracks(liked.first, artists: 4));
+          addRotatingTag();
         }
       case RadioKind.artist:
         final a = await _graphArtist(seed.artist, title: seed.track?.title);
-        parts
-          ..add(a == null ? _none() : _safe(() => graph.artistTop(a.id, limit: 25)))
-          ..add(a == null ? _none() : _safe(() => graph.artistRadio(a.id)))
-          ..add(_station(first ? seed.track : session.nextStationSeed(_rnd) ?? seed.track))
-          ..add(first ? _artistTracks(seed.artist, sample: seed.track) : _none())
-          ..add(_similarArtistsTracks(seed.artist,
-              zvukId: seed.track?.source == 'zvuk' ? seed.track!.artistId : null, artists: first ? 6 : 4))
-          ..add(first ? _none() : tagged(_rotatingTag(session)));
+        if (a != null) {
+          add('популярное Deezer', _safe(() => graph.artistTop(a.id, limit: 25)));
+          add('радио Deezer', _safe(() => graph.artistRadio(a.id)));
+        }
+        add('станция SoundCloud', _station(first ? seed.track : session.nextStationSeed(_rnd) ?? seed.track));
+        if (first) add('песни исполнителя', _artistTracks(seed.artist, sample: seed.track));
+        add('похожие исполнители (Звук/Last.fm)',
+            _similarArtistsTracks(seed.artist,
+                zvukId: seed.track?.source == 'zvuk' ? seed.track!.artistId : null, artists: first ? 6 : 4));
+        if (!first) addRotatingTag();
       case RadioKind.wave:
         final top = library.topArtists(10);
         final bases = <String>[];
@@ -576,39 +634,39 @@ class Recommendations {
         final liked = session.liked..shuffle(_rnd);
         if (liked.isNotEmpty && !bases.contains(liked.first)) bases.add(liked.first);
         if (bases.isEmpty) {
-          parts.add(_safe(graph.chart)); // волна без истории — популярное
+          add('чарт Deezer', _safe(graph.chart), origin: 'tag'); // волна без истории — популярное
         } else {
           for (final b in bases) {
-            parts.add(_graphRadio(b));
+            add('радио Deezer: $b', _graphRadio(b));
           }
           // станция одной из песен любимых исполнителей (из истории или лайков)
           final keys = {for (final b in bases) Library.artistKey(b)};
           final mine = [...library.history, ...library.liked.tracks]
               .where((t) => !t.isPick && keys.contains(Library.artistKey(trueArtist(t))))
               .toList();
-          parts.add(_station(session.nextStationSeed(_rnd) ?? (mine.isEmpty ? null : mine[_rnd.nextInt(mine.length)])));
-          parts.add(_similarArtistsTracks(bases.first, artists: 4));
-          parts.add(tagged(_rotatingTag(session)));
+          add('станция SoundCloud',
+              _station(session.nextStationSeed(_rnd) ?? (mine.isEmpty ? null : mine[_rnd.nextInt(mine.length)])));
+          add('похожие на ${bases.first}', _similarArtistsTracks(bases.first, artists: 4));
+          addRotatingTag();
         }
       case RadioKind.tag:
-        parts.add(_tagTracks(seed.artist, page: session.fills));
+        add('по тегу #${seed.artist}', _tagTracks(seed.artist, page: session.fills));
         final liked = session.liked..shuffle(_rnd);
-        if (liked.isNotEmpty) parts.add(_similarArtistsTracks(liked.first, artists: 4));
-        parts.add(_station(session.nextStationSeed(_rnd)));
+        if (liked.isNotEmpty) add('похожие на дослушанных', _similarArtistsTracks(liked.first, artists: 4));
+        add('станция дослушанного', _station(session.nextStationSeed(_rnd)));
         if (tags.hasLastfm && first) {
-          parts.add(_safe(() async {
+          add('исполнители тега (Last.fm)', _safe(() async {
             final artists = (await tags.tagTopArtists(seed.artist, limit: 40))..shuffle(_rnd);
             final tops = await Future.wait(artists.take(6).map((a) => _safe(() => tags.artistTopTracks(a, limit: 6))));
             return [for (final t in tops) ...t.take(2)];
           }));
         }
     }
-    final results = await Future.wait(parts);
+    final results = await Future.wait([for (final p in parts) p.$3]);
     final lists = [for (final l in results) List.of(l)..shuffle(_rnd)];
-    final origins = [
-      for (final f in parts)
-        tagParts.contains(f) ? 'tag' : (first || seed.kind == RadioKind.tag ? 'seed' : 'drift'),
-    ];
+    for (var j = 0; j < parts.length; j++) {
+      session.report.sources[parts[j].$1] = (session.report.sources[parts[j].$1] ?? 0) + results[j].length;
+    }
     // источники чередуем, чтобы ни один не забивал радио
     final maxLen = lists.fold<int>(0, (m, l) => l.length > m ? l.length : m);
     for (var i = 0; i < maxLen; i++) {
@@ -616,26 +674,25 @@ class Recommendations {
         final l = lists[j];
         if (i < l.length && !_seen(session, l[i])) {
           session.pool.add(l[i]);
-          session.origin.putIfAbsent(l[i].key, () => origins[j]);
+          session.origin.putIfAbsent(l[i].key, () => parts[j].$2);
+          session.labels.putIfAbsent(l[i].key, () => parts[j].$1);
         }
       }
     }
   }
 
-  /// Следующий тег из списка источников (по кругу, каждый раз следующая страница).
-  Future<List<Track>> _rotatingTag(RadioSession s) {
-    if (s.sourceTags.isEmpty) return _none();
-    final i = s.fills % s.sourceTags.length;
-    return _tagTracks(s.sourceTags[i], page: 1 + s.fills ~/ s.sourceTags.length);
-  }
-
   /// Следующая порция радио: готовые к воспроизведению треки (уже найденные на площадках).
+  ///
+  /// Сначала строгий отбор (оценка по тегам, без того, что ты часто пропускаешь). Если строгий
+  /// отбор оставил мало — второй, мягкий проход: радио не должно «пересыхать» до двух треков.
+  /// Скрытое через «Не нравится» не возвращается никогда.
   Future<List<Track>> radioBatch(RadioSeed seed, Set<String> exclude, {RadioSession? session, int want = 10}) async {
     session ??= RadioSession();
     if (seed.kind == RadioKind.track && seed.track == null) return [];
     if (seed.track != null) _markSeen(session, seed.track!);
     session.excluded.addAll(exclude);
     await _aim(seed, session);
+    final rep = session.report;
     final seedArtist = seed.kind == RadioKind.wave ? '' : Library.artistKey(seed.artist);
     // сколько песен самого исполнителя в порции
     final ownMax = switch (seed.kind) {
@@ -646,21 +703,45 @@ class Recommendations {
 
     final out = <Track>[];
     final perArtist = <String, int>{};
+    final soft = <Track>[]; // отсеяны мягкими фильтрами — пригодятся во втором проходе
+
+    Future<void> take(List<Track> cand) async {
+      for (var i = 0; i < cand.length && out.length < want; i += 5) {
+        final chunk = cand.skip(i).take(5).toList();
+        final got = await Future.wait(chunk.map(resolve));
+        for (var k = 0; k < got.length; k++) {
+          final t = got[k];
+          final src = chunk[k];
+          if (t == null) {
+            rep.count('не нашлось на площадках');
+            continue;
+          }
+          if (out.length >= want || _reject(t, seed, session!, relaxed: true) != null) continue;
+          if (session.excluded.contains(t.key)) continue;
+          if (_markSeen(session, t)) {
+            out.add(t);
+            final tt = tags.cachedTrackTags(src, artist: trueArtist(src));
+            rep.items.add('${trueArtist(t)} — ${t.title}'
+                ' | ${session.labels[src.key] ?? '?'}'
+                ' | ${tt.isEmpty ? 'тегов нет' : TagService.top(tt, 4).join(', ')}'
+                ' | оценка ${_score(src, session).toStringAsFixed(2)}');
+          }
+        }
+      }
+    }
+
     for (var round = 0; round < 3 && out.length < want; round++) {
       if (session.pool.length < want * 2 && session.fills < 6) await _refill(seed, session);
-      // теги кандидатов (исполнители уже известные берутся из памяти) и сортировка по оценке
+      // теги кандидатов (известные берутся из памяти) и сортировка по оценке
       try {
         await tags
-            .prefetch(session.pool.take(80).map(trueArtist), parallel: 8)
-            .timeout(const Duration(seconds: 15));
+            .prefetch(session.pool.take(50).map(trueArtist), parallel: 8)
+            .timeout(const Duration(seconds: 10));
       } catch (_) {}
       final scores = {for (final t in session.pool) t: _score(t, session)};
       session.pool.sort((a, b) => scores[b]!.compareTo(scores[a]!));
-      // явно чужое по тегам (оценка почти ноль при известных тегах) не берём вовсе
-      if (session.seedTags.isNotEmpty || session.like.isNotEmpty) {
-        session.pool.removeWhere((t) => scores[t]! < 0.08);
-      }
-      // кандидаты с учётом лимитов; подсказки потом ищем на площадках
+      final strictScore = session.seedTags.isNotEmpty || session.like.isNotEmpty;
+
       final origin = session.origin;
       var tagTaken = out.where((t) => origin[t.key] == 'tag').length;
       final cand = <Track>[];
@@ -670,16 +751,25 @@ class Recommendations {
           keep.add(t);
           continue;
         }
-        if (_seen(session, t) ||
-            session.excluded.contains(t.key) ||
-            session.excluded.contains(t.matchKey) ||
-            !_fits(t, seed, session)) {
+        if (_seen(session, t) || session.excluded.contains(t.key) || session.excluded.contains(t.matchKey)) {
+          rep.count('уже было / перезалив');
+          continue;
+        }
+        final why = _reject(t, seed, session);
+        if (why != null) {
+          rep.count(why);
+          if (why == 'часто пропускаешь исполнителя') soft.add(t);
+          continue;
+        }
+        if (strictScore && scores[t]! < 0.08) {
+          rep.count('не подошло по тегам');
+          soft.add(t);
           continue;
         }
         final a = Library.artistKey(trueArtist(t));
         final limit = a == seedArtist ? ownMax : 2;
         // найденное по тегам — не больше 2/3 порции: радио должно оставаться про эту песню
-        final fromTag = seed.kind != RadioKind.wave && seed.kind != RadioKind.tag && session.origin[t.key] == 'tag';
+        final fromTag = seed.kind != RadioKind.wave && seed.kind != RadioKind.tag && origin[t.key] == 'tag';
         if ((perArtist[a] ?? 0) >= limit || fromTag && tagTaken >= (want * 2 / 3).ceil()) {
           keep.add(t); // пригодится в следующих порциях
           continue;
@@ -691,26 +781,45 @@ class Recommendations {
       session.pool
         ..clear()
         ..addAll(keep);
-      for (var i = 0; i < cand.length && out.length < want; i += 5) {
-        final got = await Future.wait(cand.skip(i).take(5).map(resolve));
-        for (final t in got) {
-          if (t == null || out.length >= want || !_fits(t, seed, session)) continue;
-          if (session.excluded.contains(t.key)) continue;
-          if (_markSeen(session, t)) out.add(t);
-        }
-      }
+      await take(cand);
       if (cand.isEmpty && session.fills >= 6) break;
+    }
+
+    // мягкий проход: то, что отсеяли оценка по тегам и «часто пропускаешь», и запас с лимитами
+    if (out.length < want) {
+      rep.count('включён мягкий отбор');
+      final rest = [...soft, ...session.pool]
+          .where((t) => !_seen(session!, t) && !session.excluded.contains(t.key) && _reject(t, seed, session, relaxed: true) == null)
+          .toList();
+      final per = <String, int>{};
+      final cand = <Track>[];
+      for (final t in rest) {
+        final a = Library.artistKey(trueArtist(t));
+        if ((per[a] ?? 0) + (perArtist[a] ?? 0) >= (a == seedArtist ? ownMax : 3)) continue;
+        per[a] = (per[a] ?? 0) + 1;
+        cand.add(t);
+        if (cand.length >= (want - out.length) * 2) break;
+      }
+      session.pool.removeWhere(cand.contains);
+      await take(cand);
     }
 
     if (out.length < want ~/ 2) {
       // ни станции, ни графа (нет сети, совсем нишевая песня) — запасной путь
-      for (final t in await _fallbackBatch(seed)) {
+      final fb = await _fallbackBatch(seed);
+      rep.sources['запасной путь'] = (rep.sources['запасной путь'] ?? 0) + fb.length;
+      for (final t in fb) {
         if (out.length >= want) break;
-        if (_fits(t, seed, session) && !session.excluded.contains(t.key) && _markSeen(session, t)) {
+        if (_reject(t, seed, session, relaxed: true) == null && !session.excluded.contains(t.key) && _markSeen(session, t)) {
           out.add(t);
         }
       }
     }
+    rep.given += out.length;
+    rep.lastTarget = TagService.top(session.seedTags, 5);
+    rep.lastLike = TagService.top(session.like, 5);
+    rep.lastAvoid = TagService.top(session.avoid, 5);
+    rep.sourceTags = session.sourceTags;
     return _spread(out);
   }
 
