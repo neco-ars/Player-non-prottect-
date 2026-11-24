@@ -6,7 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/track.dart';
 import '../sources/net.dart';
+import '../sources/soundcloud.dart';
 import '../sources/zvuk.dart';
+import 'lyrics.dart';
 import 'library.dart';
 
 /// Теги (жанры и стили) с весами: {'metalcore': 1.0, 'metal': 0.6, ...}.
@@ -17,20 +19,33 @@ typedef Tags = Map<String, double>;
 /// Так подбирают музыку Last.fm и Pandora: у каждой песни есть набор тегов (жанров, стилей),
 /// у слушателя — свой набор, собранный из того, что он слушает. Похожесть — насколько совпадают наборы.
 ///
-/// Откуда теги: Last.fm (теги, которые ставят слушатели, — лучшие, нужен бесплатный ключ LASTFM_KEY),
-/// жанр и теги трека с SoundCloud/Audiomack, жанр из тегов своих файлов.
+/// Откуда теги (по важности):
+/// 1. твои собственные теги исполнителя (кнопка ✎ в плеере) — главнее всего;
+/// 2. теги слушателей SoundCloud: жанры и теги всех загрузок исполнителя и песни
+///    (там у андерграунда точные теги — necrotrap, horrorcore, deathcore);
+/// 3. Last.fm (если вшит ключ LASTFM_KEY);
+/// 4. жанры релизов Звука — крупные и часто неточные, поэтому с малым весом.
 class TagService {
   static const _builtInKey = String.fromEnvironment('LASTFM_KEY');
   static const _api = 'https://ws.audioscrobbler.com/2.0/';
-  static const _prefKey = 'artist_tags_v1';
+  // v2: теги пересчитываются (в v1 были только крупные жанры Звука)
+  static const _prefKey = 'artist_tags_v2';
 
   final String key;
 
-  /// Звук: жанры релизов и похожие исполнители — главный источник для русской музыки.
+  /// Звук: жанры релизов и похожие исполнители.
   final ZvukSource? zvuk;
-  TagService({String? key, this.zvuk}) : key = key ?? _builtInKey;
+
+  /// SoundCloud: теги слушателей.
+  final SoundCloudSource? sc;
+
+  /// Свои теги исполнителя (artistKey → теги), если человек их задал.
+  List<String>? Function(String artistKey)? userTags;
+
+  TagService({String? key, this.zvuk, this.sc}) : key = key ?? _builtInKey;
 
   bool get hasZvuk => zvuk?.isConfigured == true;
+  bool get hasSc => sc?.isConfigured == true;
 
   bool get hasLastfm => key.isNotEmpty;
 
@@ -138,6 +153,10 @@ class TagService {
     if (tag == 'russian rock') out.addAll(['rock', 'russian']);
     if (tag == 'russian rap') out.addAll(['hip-hop', 'russian']);
     if (tag == 'hyperpop' || tag == 'digicore' || tag == 'glitchcore') out.add('electronic');
+    if (tag == 'necrotrap' || tag == 'horrorcore' || tag == 'horror trap' || tag == 'rage' || tag == 'memphis rap') {
+      out.addAll(['trap', 'hip-hop']);
+    }
+    if (tag == 'horrorclub' || tag == 'jerseyclub' || tag == 'jersey club') out.add('club');
     return out;
   }
 
@@ -179,7 +198,7 @@ class TagService {
   /// одинаково «alternative rock»), поэтому почти ничего не говорят о похожести.
   static const _broadTags = {
     'russian', 'english', 'korean', 'pop', 'rock', 'alternative rock', 'alternative', 'indie', 'indie rock',
-    'hip-hop', 'rap', 'russian rap', 'rnb', 'electronic', 'dance', 'hard rock', 'metal', 'punk', 'soul',
+    'hip-hop', 'rap', 'russian rap', 'trap', 'rnb', 'electronic', 'dance', 'hard rock', 'metal', 'punk', 'soul',
     'russian pop', 'russian rock', 'singer-songwriter', 'acoustic', 'soundtrack',
   };
 
@@ -200,6 +219,31 @@ class TagService {
     }
     final n = _norm(a) * _norm(b);
     return n == 0 ? 0 : dot / n;
+  }
+
+  static Set<String> _leafTags(Tags t) {
+    final keys = t.keys.toSet();
+    return {
+      for (final tag in keys)
+        if (!isBroad(tag) && !keys.any((other) => other != tag && _parents(other).contains(tag))) tag,
+    };
+  }
+
+  /// Совместимы ли стили. Общий родитель не заменяет конкретный поджанр стартовой песни,
+  /// но для широкого стартового жанра и для двух конкретных потомков одного жанра это допустимо.
+  static bool sameStyle(Tags seed, Tags candidate) {
+    if (seed.isEmpty || candidate.isEmpty || similarity(seed, candidate) >= 0.08) return true;
+    final a = _leafTags(seed);
+    if (a.isEmpty) return true;
+    final b = _leafTags(candidate);
+    if (b.isEmpty) return false;
+    for (final x in a) {
+      final parents = _parents(x).toSet();
+      for (final y in b) {
+        if (x == y || parents.any(_parents(y).contains)) return true;
+      }
+    }
+    return false;
   }
 
   /// Смесь наборов с весами (каждый сначала приводится к длине 1).
@@ -281,14 +325,79 @@ class TagService {
 
   final Map<String, Future<Tags>> _inflight = {};
 
-  /// Теги исполнителя (Last.fm). Запоминаются на устройстве.
-  Future<Tags> artistTags(String artist, {String? zvukArtistId}) async {
+  static String _compact(String s) => Track.normalize(s).replaceAll(' ', '');
+
+  /// Свои теги исполнителя, если человек их задал.
+  Tags? _user(String artistKey) {
+    final u = userTags?.call(artistKey);
+    if (u == null || u.isEmpty) return null;
+    return normalize({for (final t in u) t: 1.0});
+  }
+
+  /// Теги слушателей SoundCloud: жанры и теги всех загрузок исполнителя (и песни, если задана).
+  /// Чем у большего числа загрузок тег, тем больше вес. Имена и ники как теги не берём.
+  Future<Tags> _fromSoundCloud(String name, {String? title}) async {
+    if (!hasSc) return const {};
+    final queries = [name, if (title != null && title.trim().isNotEmpty) '$name ${LyricsService.cleanTitle(title)}'];
+    final lists = await Future.wait(queries.map((q) async {
+      try {
+        return await sc!.search(q).timeout(const Duration(seconds: 8));
+      } catch (_) {
+        return const <Track>[];
+      }
+    }));
+    final want = _compact(name);
+    final raw = name.toLowerCase().trim();
+    final seen = <String>{};
+    final count = <String, double>{};
+    var mine = 0;
+    for (final t in lists.expand((x) => x)) {
+      if (!seen.add(t.key)) continue;
+      final dash = RegExp(r'\s[-–—]\s').firstMatch(t.title);
+      final titleArtist = dash != null && dash.start > 0 ? _compact(t.title.substring(0, dash.start)) : '';
+      final low = t.title.toLowerCase();
+      // загрузка этого исполнителя: его аккаунт, «Исполнитель - Песня» или имя в названии (если имя не короткое)
+      final isMine = _compact(t.artist) == want ||
+          titleArtist == want ||
+          raw.length >= 4 && low.contains(raw) ||
+          want.length >= 5 && _compact(t.title).contains(want);
+      if (!isMine) continue;
+      mine++;
+      final here = <String>{
+        if (t.genre != null) t.genre!,
+        for (final x in (t.extra['tags'] as List? ?? const [])) '$x',
+      };
+      for (var g in here) {
+        g = g.replaceAll('#', '').trim();
+        final c = _compact(g);
+        // имя самого исполнителя, ники, ссылки и мусор — не теги
+        if (c.length < 3 || c == want || g.contains('@') || g.contains('http') || RegExp(r'[$€£]').hasMatch(g)) {
+          continue;
+        }
+        count[g.toLowerCase()] = (count[g.toLowerCase()] ?? 0) + 1;
+      }
+    }
+    if (mine == 0 || count.isEmpty) return const {};
+    // у кого много загрузок — тег должен встречаться хотя бы дважды (иначе это чья-то случайная пометка)
+    final minCount = mine >= 6 ? 2 : 1;
+    final most = count.values.fold<double>(0, max);
+    return normalize({
+      for (final e in count.entries)
+        if (e.value >= minCount) e.key: e.value / most,
+    });
+  }
+
+  /// Теги исполнителя. Свои — главнее всего; иначе SoundCloud + Last.fm + (с малым весом) Звук.
+  /// Запоминаются на устройстве.
+  Future<Tags> artistTags(String artist, {String? zvukArtistId, String? title}) async {
     await _load();
     final k = Library.artistKey(artist);
     if (k.isEmpty) return const {};
+    final own = _user(k);
+    if (own != null) return own;
     final hit = _artists[k];
     if (hit != null) return hit;
-    if (!hasLastfm && !hasZvuk) return const {};
+    if (!hasLastfm && !hasZvuk && !hasSc) return const {};
     return _inflight[k] ??= () async {
       try {
         final name = artist.split(RegExp(r',|&| feat\.? | ft\.? | x ', caseSensitive: false)).first.trim();
@@ -315,9 +424,14 @@ class TagService {
           }
         }
 
-        final r = await Future.wait([fromZvuk(), fromLastfm()]);
-        // жанры Звука крупные (рэп, метал), теги Last.fm подробные (emo rap, deathcore) — берём оба
-        final tags = blend([(r[0], r[0].isEmpty ? 0 : 0.8), (r[1], r[1].isEmpty ? 0 : 1.0)]);
+        final r = await Future.wait([_fromSoundCloud(name, title: title), fromLastfm(), fromZvuk()]);
+        final crowd = r[0].isNotEmpty || r[1].isNotEmpty;
+        // теги слушателей главнее; жанры Звука крупные и часто мимо — только подсказка
+        final tags = blend([
+          (r[0], r[0].isEmpty ? 0 : 1.0),
+          (r[1], r[1].isEmpty ? 0 : 1.0),
+          (r[2], r[2].isEmpty ? 0 : (crowd ? 0.2 : 0.6)),
+        ]);
         // пустой набор тоже запоминаем (значит, тегов нет), но не после сбоя сети
         if (tags.isNotEmpty || failed == 0) {
           _artists[k] = tags;
@@ -330,34 +444,47 @@ class TagService {
     }();
   }
 
+  /// Забыть запомненные автоматические теги исполнителя (пересчитать заново).
+  void forget(String artist) => _artists.remove(Library.artistKey(artist));
+
   final Map<String, List<String>> _releases = {};
 
-  /// Теги трека: жанр и теги площадки (у Звука — жанры релиза) + теги исполнителя.
+  /// Теги трека: свои теги исполнителя, иначе теги площадки + теги исполнителя
+  /// (жанры релиза Звука — с малым весом).
   Future<Tags> trackTags(Track t, {String? artist}) async {
-    final own = <String, double>{
+    final a0 = artist ?? t.artist;
+    final own = _user(Library.artistKey(a0));
+    if (own != null) return own;
+    final mine = <String, double>{
       if (t.genre != null && t.genre!.trim().isNotEmpty) t.genre!: 1.0,
       for (final x in (t.extra['tags'] as List? ?? const [])) '$x': 0.6,
     };
+    Tags zvukRelease = const {};
     if (t.source == 'zvuk' && t.albumId != null && hasZvuk) {
       try {
         final g = _releases[t.albumId!] ??= await zvuk!.releaseGenres(t.albumId!);
-        for (final x in g) {
-          own[x] = 1.0;
-        }
+        zvukRelease = normalize({for (final x in g) x: 1.0});
       } catch (_) {}
     }
-    final a = await artistTags(artist ?? t.artist, zvukArtistId: t.source == 'zvuk' ? t.artistId : null);
-    return blend([(normalize(own), own.isEmpty ? 0 : 0.5), (a, a.isEmpty ? 0 : 1.0)]);
+    final a = await artistTags(a0, zvukArtistId: t.source == 'zvuk' ? t.artistId : null, title: t.title);
+    return blend([
+      (normalize(mine), mine.isEmpty ? 0 : 0.5),
+      (a, a.isEmpty ? 0 : 1.0),
+      (zvukRelease, zvukRelease.isEmpty ? 0 : 0.15),
+    ]);
   }
 
   /// Теги, которые уже известны без сети (для быстрой сортировки большого списка).
   Tags cachedTrackTags(Track t, {String? artist}) {
-    final own = <String, double>{
+    final k = Library.artistKey(artist ?? t.artist);
+    final own = _user(k);
+    if (own != null) return own;
+    final mine = <String, double>{
       if (t.genre != null && t.genre!.trim().isNotEmpty) t.genre!: 1.0,
       for (final x in (t.extra['tags'] as List? ?? const [])) '$x': 0.6,
     };
-    final a = _artists[Library.artistKey(artist ?? t.artist)] ?? const {};
-    return blend([(normalize(own), own.isEmpty ? 0 : 0.5), (a, a.isEmpty ? 0 : 1.0)]);
+    final a = _artists[k] ?? const {};
+    return blend([(normalize(mine), mine.isEmpty ? 0 : 0.5), (a, a.isEmpty ? 0 : 1.0)]);
   }
 
   /// Подготовить теги многих исполнителей сразу (по [parallel] запросов).

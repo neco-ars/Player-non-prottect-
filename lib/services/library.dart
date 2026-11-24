@@ -154,6 +154,12 @@ class Library extends ChangeNotifier {
     stamps.addAll(_ints(j['stamps']));
     deletedPlaylists.addAll(_ints(j['deleted']));
     historyAt.addAll(_ints(j['historyAt']));
+    final ut = j['userTags'];
+    if (ut is Map) {
+      for (final e in ut.entries) {
+        if (e.value is List) userTags['${e.key}'] = [for (final x in e.value as List) '$x'];
+      }
+    }
     final arts = j['artists'];
     if (arts is Map) {
       for (final e in arts.entries) {
@@ -362,6 +368,30 @@ class Library extends ChangeNotifier {
     };
   }
 
+  // ---------- свои теги ----------
+
+  /// Свои теги исполнителей (artistKey → теги): главнее автоматических.
+  final Map<String, List<String>> userTags = {};
+
+  String artistKeyOf(String artist) => artistKey(artist);
+
+  /// Задать свои теги исполнителя. Пустой список — вернуть автоматические.
+  void setUserTags(String artist, List<String> tags) {
+    final k = artistKey(artist);
+    if (k.isEmpty) return;
+    final clean = [
+      for (final t in tags)
+        if (t.trim().isNotEmpty) t.trim().toLowerCase(),
+    ].toSet().toList();
+    if (clean.isEmpty) {
+      userTags.remove(k);
+    } else {
+      userTags[k] = clean;
+    }
+    _touch('userTags');
+    _changed();
+  }
+
   /// Исполнителя часто пропускают — в радио его лучше не ставить.
   bool oftenSkipped(String artist) {
     final s = artists[artistKey(artist)];
@@ -384,6 +414,7 @@ class Library extends ChangeNotifier {
         'deleted': deletedPlaylists,
         'historyAt': historyAt,
         'artists': {for (final e in artists.entries) e.key: e.value.toJson()},
+        'userTags': userTags,
       };
 
   Future<void> _save() async {
@@ -406,6 +437,7 @@ class Library extends ChangeNotifier {
     deletedPlaylists.clear();
     historyAt.clear();
     artists.clear();
+    userTags.clear();
     _readMeta(j);
     _ensureLiked();
     _changed();
@@ -449,6 +481,7 @@ class Library extends ChangeNotifier {
     }
 
     final disliked = (stB['disliked'] ?? 0) > (stA['disliked'] ?? 0) ? list(b['disliked']) : list(a['disliked']);
+    final userTags = (stB['userTags'] ?? 0) > (stA['userTags'] ?? 0) ? b['userTags'] : a['userTags'];
 
     // история: объединение по времени прослушивания
     final at = maxMap(_ints(a['historyAt']), _ints(b['historyAt']));
@@ -488,6 +521,7 @@ class Library extends ChangeNotifier {
       'deleted': deleted,
       'historyAt': {for (final k in kept) if (at[k] != null) k: at[k]},
       'artists': arts,
+      'userTags': userTags is Map ? userTags : const {},
     };
   }
 }

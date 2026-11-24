@@ -10,6 +10,7 @@ import 'package:music_player/services/sync.dart';
 import 'package:music_player/services/tags.dart';
 import 'package:music_player/services/taste.dart';
 import 'package:music_player/sources/net.dart';
+import 'package:music_player/sources/soundcloud.dart';
 
 import 'edge_cases_test.dart' show FakeSource, t;
 
@@ -57,13 +58,30 @@ class FakeGraph extends TasteGraph {
   Future<List<Track>> chart() async => broken ? throw Exception('нет') : [];
 }
 
+Track t0(String source, String id, String artist, String title) =>
+    Track(source: source, id: id, title: title, artist: artist);
+
+/// Трек SoundCloud с жанром и тегами.
+Track tg(String id, String artist, String title, String? genre, List<String> tags) => Track(
+    source: 'soundcloud', id: id, title: title, artist: artist, genre: genre, extra: {'tags': tags});
+
+/// SoundCloud, который отвечает на поиск заданными треками.
+class FakeSoundCloudSearch extends SoundCloudSource {
+  final Map<String, List<Track>> results;
+  FakeSoundCloudSearch(this.results);
+  @override
+  bool get isConfigured => true;
+  @override
+  Future<List<Track>> search(String query) async => results[query] ?? const [];
+}
+
 /// Теги без сети: исполнитель → теги.
 class FakeTags extends TagService {
   final Map<String, Map<String, double>> byArtist;
   FakeTags(this.byArtist) : super(key: '');
   Tags _of(String artist) => TagService.normalize(byArtist[Library.artistKey(artist)] ?? const {});
   @override
-  Future<Tags> artistTags(String artist, {String? zvukArtistId}) async => _of(artist);
+  Future<Tags> artistTags(String artist, {String? zvukArtistId, String? title}) async => _of(artist);
   @override
   Future<Tags> trackTags(Track t, {String? artist}) async => _of(artist ?? t.artist);
   @override
@@ -190,6 +208,34 @@ void main() {
       expect(batch.map(Recommendations.titleKey).toSet().length, batch.length); // ни одной песни дважды
     });
 
+    test('некротрэп не подменяется русским рэпом даже при нехватке кандидатов', () async {
+      Duration s(int x) => Duration(seconds: x);
+      final seedSc = t('soundcloud', 'seed-necro', 'die!', 'die! - BESTGORE', duration: s(101));
+      final station = [
+        t('soundcloud', 'sim', 'СИМОЧКА', 'Похожая песня', duration: s(150)),
+        t('soundcloud', 'dekma', 'Dekma', 'Ещё одна', duration: s(160)),
+        for (var i = 0; i < 4; i++) t('soundcloud', 'rap$i', 'Рэпер$i', 'Рэп-песня $i', duration: s(170)),
+      ];
+      final sc = FakeSoundCloud(results: {'die! BESTGORE': [seedSc]}, stationTracks: station);
+      final fakeTags = FakeTags({
+        'die': {'necrotrap': 1.0, 'horrorcore': 0.8},
+        'симочка': {'necrotrap': 1.0, 'horrorcore': 0.7},
+        'dekma': {'necrotrap': 0.9, 'horrorcore': 1.0},
+        for (var i = 0; i < 4; i++) 'рэпер$i': {'russian rap': 1.0, 'trap': 0.8},
+      });
+      final lib = Library.memory();
+      for (var i = 0; i < 5; i++) {
+        lib.recordPlay(station.firstWhere((x) => x.artist == 'Рэпер0'));
+      }
+      final search = SearchService([sc]);
+      final r = Recommendations(search, lib, CatalogService(search), graph: FakeGraph(), tags: fakeTags);
+      final seed = t('zvuk', 'z-necro', 'die!', 'BESTGORE', duration: s(101));
+      final batch = await r.radioBatch(RadioSeed.track(seed), {seed.key}, want: 6);
+      expect(batch.map((x) => x.artist), containsAll(['СИМОЧКА', 'Dekma']));
+      expect(batch.any((x) => x.artist.startsWith('Рэпер')), isFalse);
+      expect(batch, hasLength(2));
+    });
+
     test('исполнитель, которого в этом радио пропустили дважды, больше не попадается', () async {
       final g = FakeGraph(radios: {'Seed': hintsOf(['Seed', 'Near1', 'Near2'])});
       final r = recs([playable('zvuk', songs)], Library.memory(), g);
@@ -220,6 +266,21 @@ void main() {
       final batch = await r.radioBatch(RadioSeed.wave, {});
       expect(batch, isNotEmpty);
       expect(batch.every((x) => x.artist == 'Near2' || x.artist == 'Near1'), isTrue);
+    });
+
+    test('лайк обновляет профиль уже запущенного радио', () async {
+      final lib = Library.memory();
+      final tags = FakeTags({'near1': {'necrotrap': 1.0}});
+      final search = SearchService([playable('zvuk', songs)]);
+      final r = Recommendations(search, lib, CatalogService(search), graph: FakeGraph(), tags: tags);
+      final session = RadioSession();
+      await r.radioBatch(RadioSeed.wave, {}, session: session, want: 2);
+      expect(session.like, isEmpty);
+      lib.toggleLike(songs.firstWhere((s) => s.artist == 'Near1'));
+      session.feedbackDirty = true;
+      await r.radioBatch(RadioSeed.wave, {}, session: session, want: 2);
+      expect(session.like['necrotrap'], isNotNull);
+      expect(session.feedbackDirty, isFalse);
     });
   });
 
@@ -273,6 +334,37 @@ void main() {
       expect(t['metalcore'], 0.7); // жанр Звука по-русски
     });
 
+    test('свои теги главнее автоматических и переживают синхронизацию', () async {
+      final lib = Library.memory();
+      final tagService = TagService(key: '')..userTags = (k) => lib.userTags[k];
+      lib.setUserTags('die!', ['NecroTrap', ' horrorcore ', '']);
+      final t = await tagService.trackTags(t0('zvuk', '1', 'die!', 'BESTGORE'));
+      expect(t.keys, containsAll(['necrotrap', 'horrorcore']));
+      expect(t.containsKey('rap'), isFalse);
+      final merged = Library.merge(Library.memory().toJson(), lib.toJson());
+      final other = Library.memory()..replaceWith(merged);
+      expect(other.userTags['die'], ['necrotrap', 'horrorcore']);
+      lib.setUserTags('die!', const []);
+      expect(lib.userTags.containsKey('die'), isFalse);
+    });
+
+    test('теги SoundCloud: собираются с загрузок исполнителя, ники и чужие загрузки не считаются', () async {
+      final sc = FakeSoundCloudSearch({
+        'die!': [
+          tg('a', 'DIE!', 'DIE! - BESTGORE', null, const []),
+          tg('b', 'HXRNS ARCHIVE', 'Tec-9 Massacre w/BESTGORE [DIE!]', 'NECROTRAP', const ['NECROTRAP', 'HXRN\$', 'die!']),
+          tg('c', 'someone', 'die! - other', 'necrotrap', const ['horrorcore']),
+          tg('d', 'DeeJays', 'random @djBestgore', 'horrorclub', const ['jerseyclub']),
+        ],
+      });
+      final tagService = TagService(key: '', sc: sc);
+      final t = await tagService.artistTags('die!');
+      expect(t['necrotrap'], greaterThan(t['horrorcore']!));
+      expect(t.containsKey('horrorcore'), isTrue);
+      expect(t.containsKey('horrorclub'), isFalse); // чужая загрузка
+      expect(t.keys.any((k) => k.contains('hxrn') || k == 'die!' || k == 'die'), isFalse);
+    });
+
     test('похожесть: одно и то же — 1, ничего общего — 0, общий жанр — почти ничего', () {
       final k = TagService.normalize({'k-pop': 1.0});
       expect(TagService.similarity(k, k), closeTo(1, 1e-9));
@@ -284,6 +376,18 @@ void main() {
       final seed = TagService.normalize({'alternative rock': 1.0, 'rap': 0.6, 'metal': 0.5});
       final tame = TagService.normalize({'alternative rock': 1.0, 'rock': 0.6});
       expect(TagService.similarity(seed, tame), lessThan(0.15));
+    });
+
+    test('конкретный поджанр не подменяется родительским, а широкий жанр не запрещает потомков', () {
+      final necro = TagService.normalize({'necrotrap': 1.0, 'horrorcore': 0.8});
+      final rap = TagService.normalize({'russian rap': 1.0, 'trap': 0.8});
+      expect(TagService.sameStyle(necro, rap), isFalse);
+      expect(TagService.sameStyle(necro, TagService.normalize({'horrorcore': 1.0})), isTrue);
+      expect(TagService.sameStyle(TagService.normalize({'trap': 1.0}), rap), isTrue);
+      expect(
+        TagService.sameStyle(TagService.normalize({'deathcore': 1.0}), TagService.normalize({'metalcore': 1.0})),
+        isTrue,
+      );
     });
 
     test('радио по треку у любителя металла: тяжёлое выше, хотя песня — рэп', () async {

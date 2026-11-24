@@ -379,11 +379,22 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> toggleMute() => setVolume(muted ? (_beforeMute > 0 ? _beforeMute : 0.5) : 0);
 
+  /// Лайк сразу обновляет профиль текущего радио, а не только список «Любимое».
+  void toggleLike(Track t) {
+    library.toggleLike(t);
+    recs.invalidate();
+    recs.tags.invalidateProfile();
+    if (radio) _session.feedbackDirty = true;
+    notifyListeners();
+  }
+
   /// «Не нравится»: скрыть песню и её исполнителя из рекомендаций и радио,
   /// убрать их из оставшейся очереди радио и, если это играющий трек, — переключить дальше.
   Future<void> dislike(Track t) async {
     library.dislike(t);
     recs.invalidate();
+    recs.tags.invalidateProfile();
+    if (radio) _session.feedbackDirty = true;
     if (radio && _index >= 0) {
       final kept = _queue.take(_index + 1).toList();
       final rest = _queue.skip(_index + 1).where(library.allowedInRecs);
@@ -405,6 +416,8 @@ class PlayerService extends ChangeNotifier {
   void undislike(Track t) {
     library.undislike(t);
     recs.invalidate();
+    recs.tags.invalidateProfile();
+    if (radio) _session.feedbackDirty = true;
   }
 
   /// Свайп вправо: сразу предыдущий трек (а не перемотка в начало, как у кнопки ⏮).

@@ -49,9 +49,11 @@ class AppServices {
         consumerKey: AppKeys.pick(settings.audiomackKey, AppKeys.audiomackKey),
         consumerSecret: AppKeys.pick(settings.audiomackSecret, AppKeys.audiomackSecret));
     final zvuk = ZvukSource(settings.zvukToken);
-    final search = SearchService([local, zvuk, SoundCloudSource(), audiomack, youtube]);
+    final soundcloud = SoundCloudSource();
+    final search = SearchService([local, zvuk, soundcloud, audiomack, youtube]);
     final catalog = CatalogService(search);
-    final recs = Recommendations(search, library, catalog, tags: TagService(zvuk: zvuk));
+    final tags = TagService(zvuk: zvuk, sc: soundcloud)..userTags = (k) => library.userTags[k];
+    final recs = Recommendations(search, library, catalog, tags: tags);
     final equalizer = EqualizerService();
     await equalizer.load();
     final player = PlayerService(search, library, recs, equalizer);

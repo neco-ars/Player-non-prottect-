@@ -80,7 +80,7 @@ class MiniPlayer extends StatelessWidget {
                       IconButton(
                         icon: Icon(liked ? Icons.favorite : Icons.favorite_border,
                             color: liked ? AppColors.accent : AppColors.text),
-                        onPressed: () => app.library.toggleLike(t),
+                        onPressed: () => app.player.toggleLike(t),
                       ),
                       if (t.isVideo)
                         IconButton(icon: const Icon(Icons.smart_display), onPressed: p.showVideo)

@@ -165,7 +165,7 @@ class NowPlayingPage extends StatelessWidget {
                         iconSize: 28,
                         icon: Icon(liked ? Icons.favorite : Icons.favorite_border,
                             color: liked ? AppColors.accent : AppColors.text),
-                        onPressed: () => app.library.toggleLike(t),
+                        onPressed: () => app.player.toggleLike(t),
                       ),
                     ]),
                     TrackTags(track: t),

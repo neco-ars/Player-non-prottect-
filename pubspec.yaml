@@ -1,7 +1,7 @@
 name: music_player
 description: "Агрегатор музыки: поиск по Звуку, SoundCloud, YouTube и своим файлам в одном плеере."
 publish_to: 'none'
-version: 0.18.2+32
+version: 0.19.0+33
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

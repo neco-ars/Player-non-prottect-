@@ -75,6 +75,9 @@ class RadioSession {
   /// Теги того, что ты пропускаешь и скрыл, — такое опускается вниз.
   Tags avoid = const {};
 
+  /// Лайк или дизлайк изменил профиль: перед следующей порцией пересчитать цель.
+  bool feedbackDirty = false;
+
   /// Теги стартовой песни (исполнителя, тега) и твоего профиля — по отдельности.
   Tags seedTags = const {};
   Tags like = const {};
@@ -340,7 +343,8 @@ class Recommendations {
   //    по самой песне: у однофамильцев чужие «похожие»).
   // 3. По ходу радио — станции треков, которые ты дослушал, и похожие на дослушанных исполнителей.
   // Ограничения: тот же исполнитель — не больше четверти порции, без перезаливов одной песни,
-  // ремиксов, минусовок, speed up, DJ-сетов и того, что ты пропускаешь или скрыл.
+  // ремиксов, минусовок, speed up, DJ-сетов и того, что ты пропускаешь или скрыл. Известные теги
+  // кандидата должны совпадать со стартовой песней; мягкий и запасной проходы это не отменяют.
 
   static final _dash = RegExp(r'\s[-–—]\s');
 
@@ -466,7 +470,7 @@ class Recommendations {
   /// Так после эмо-рэпа у любителя металла пойдёт то, что ближе к обоим (trap metal, металкор
   /// с читкой), а не просто «ещё эмо-рэп».
   Future<void> _aim(RadioSeed seed, RadioSession s) async {
-    if (s.target != null) return;
+    if (s.target != null && !s.feedbackDirty) return;
     Tags like = const {}, avoid = const {};
     try {
       (like, avoid) = await tags.profile(library).timeout(const Duration(seconds: 20));
@@ -522,6 +526,7 @@ class Recommendations {
       for (final t in order)
         if ((seed.kind == RadioKind.tag || !TagService.isBroad(t)) && seen.add(t)) t,
     ].take(4).toList();
+    s.feedbackDirty = false;
   }
 
   /// Оценка кандидата: насколько его теги совпадают с целью радио, минус то, чего ты избегаешь.
@@ -531,13 +536,17 @@ class Recommendations {
     final from = s.origin[t.key] ?? 'seed';
     // похоже на песню: по тегам, а если их нет — по тому, откуда кандидат
     final bySource = from == 'seed' ? 0.55 : (from == 'drift' ? 0.4 : 0.15);
-    final seedPart = s.seedTags.isNotEmpty && tt.isNotEmpty
-        ? max(TagService.similarity(tt, s.seedTags), from == 'seed' ? 0.3 : 0.0)
-        : bySource;
+    final seedPart = s.seedTags.isNotEmpty && tt.isNotEmpty ? TagService.similarity(tt, s.seedTags) : bySource;
     // похоже на твой вкус
     final likePart = s.like.isEmpty ? seedPart : (tt.isEmpty ? 0.2 : TagService.similarity(tt, s.like));
     final avoid = tt.isEmpty ? 0.0 : TagService.similarity(tt, s.avoid);
     return s.seedWeight * seedPart + (1 - s.seedWeight) * likePart - 0.6 * avoid + noise;
+  }
+
+  bool _genreMismatch(Track t, RadioSession s) {
+    if (s.seedTags.isEmpty) return false;
+    final tt = tags.cachedTrackTags(t, artist: trueArtist(t));
+    return tt.isNotEmpty && !TagService.sameStyle(s.seedTags, tt);
   }
 
   /// Песни похожих исполнителей: у Звука — сразу играбельные популярные треки, у Last.fm — подсказки.
@@ -764,6 +773,10 @@ class Recommendations {
           if (why == 'часто пропускаешь исполнителя') soft.add(t);
           continue;
         }
+        if (_genreMismatch(t, session)) {
+          rep.count('другой жанр');
+          continue;
+        }
         if (strictScore && scores[t]! < 0.08) {
           rep.count('не подошло по тегам');
           soft.add(t);
@@ -788,7 +801,7 @@ class Recommendations {
       if (cand.isEmpty && session.fills >= 6) break;
     }
 
-    // мягкий проход: то, что отсеяли оценка по тегам и «часто пропускаешь», и запас с лимитами
+    // мягкий проход: слабая оценка и «часто пропускаешь», но не заведомо другой жанр
     if (out.length < want) {
       rep.count('включён мягкий отбор');
       final rest = [...soft, ...session.pool]
@@ -813,7 +826,10 @@ class Recommendations {
       rep.sources['запасной путь'] = (rep.sources['запасной путь'] ?? 0) + fb.length;
       for (final t in fb) {
         if (out.length >= want) break;
-        if (_reject(t, seed, session, relaxed: true) == null && !session.excluded.contains(t.key) && _markSeen(session, t)) {
+        if (_reject(t, seed, session, relaxed: true) == null &&
+            !_genreMismatch(t, session) &&
+            !session.excluded.contains(t.key) &&
+            _markSeen(session, t)) {
           out.add(t);
         }
       }

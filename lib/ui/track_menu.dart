@@ -28,7 +28,7 @@ Future<void> showTrackMenu(BuildContext context, Track t, {Playlist? playlist}) 
             leading: Icon(lib.isLiked(t) ? Icons.favorite : Icons.favorite_border),
             title: Text(lib.isLiked(t) ? 'Убрать из «Любимого»' : 'В «Любимое»'),
             onTap: () {
-              lib.toggleLike(t);
+              app.player.toggleLike(t);
               close();
             },
           ),
